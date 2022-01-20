@@ -40,6 +40,7 @@ import io.getquill.BatchAction
 import io.getquill._
 import io.getquill.parser.Lifter
 import io.getquill.OuterSelectWrap
+import io.getquill.util.CommonExtensions
 
 trait ContextOperation[I, T, D <: Idiom, N <: NamingStrategy, PrepareRow, ResultRow, Session, Ctx <: Context[_, _], Res](val idiom: D, val naming: N) {
   def execute(sql: String, prepare: (PrepareRow, Session) => (List[Any], PrepareRow), extractor: Extraction[ResultRow, Session, T], executionInfo: ExecutionInfo, fetchSize: Option[Int]): Res
@@ -62,14 +63,16 @@ object Execution:
 
   /** Summon decoder for a given Type and Row type (ResultRow) */
   def summonDecoderOrThrow[ResultRow: Type, Session: Type, DecoderT: Type]()(using Quotes): Expr[GenericDecoder[ResultRow, Session, DecoderT, DecodingType]] =
-    import quotes.reflect._
+    import quotes.reflect.{ Try => _, _}
     // First try summoning a specific encoder, if that doesn't work, summon the generic one
     Expr.summon[GenericDecoder[ResultRow, Session, DecoderT, DecodingType.Specific]] match
       case Some(decoder) => decoder
       case None =>
         Expr.summon[GenericDecoder[ResultRow, Session, DecoderT, DecodingType.Generic]] match
           case Some(decoder) => decoder
-          case None => report.throwError(s"Decoder could not be summoned during query execution for the type ${io.getquill.util.Format.TypeOf[DecoderT]}")
+          case None =>
+            println(s"Error summoning Decoder: could not be summoned during query execution for the type ${io.getquill.util.Format.TypeOf[DecoderT]}")
+            report.throwError(s"Decoder could not be summoned during query execution for the type ${io.getquill.util.Format.TypeOf[DecoderT]}")
 
   /** See if there there is a QueryMeta mapping T to some other type RawT */
   def summonQueryMetaTypeIfExists[T: Type](using Quotes) =
@@ -141,7 +144,7 @@ object QueryExecution:
     fetchSize: Expr[Option[Int]],
     wrap: Expr[OuterSelectWrap]
   )(using val qctx: Quotes, QAC: Type[QAC[I, T]]):
-    import qctx.reflect._
+    import qctx.reflect.{ Try => _, _ }
     import Execution._
 
     def apply() =
@@ -166,30 +169,44 @@ object QueryExecution:
         case OuterSelectWrap.Never => ElaborationBehavior.Skip
         case OuterSelectWrap.Default => ElaborationBehavior.Elaborate
 
-    /** Summon all needed components and run executeQuery method */
+    /**
+     * Summon all needed components and run executeQuery method
+     * (Experiment with catching `StaticTranslationMacro.apply` errors since they usually happen
+     * because some upstream construct has done a reportError so we do not want to do another one.
+     * I.e. if we do another returnError here it will override that one which is not needed.
+     * if this seems to work well, make the same change to other apply___ methods here.
+     * )
+     */
     def applyQuery(quoted: Expr[Quoted[QAC[I, T]]]): Expr[Res] =
       summonQueryMetaTypeIfExists[T] match
         // Can we get a QueryMeta? Run that pipeline if we can
         case Some(queryMeta) =>
           queryMeta match { case '[rawT] => runWithQueryMeta[rawT](quoted) }
         case None =>
-          // Otherwise the regular pipeline
-          StaticTranslationMacro.applyInner[I, T, D, N](quoted, queryElaborationBehavior) match
-            // Can we re-create needed info to construct+tokenize the query statically?
-            case Some(staticState) =>
+          Try(StaticTranslationMacro[I, T, D, N](quoted, queryElaborationBehavior)) match
+            case scala.util.Failure(e) =>
+              import CommonExtensions.Throwable._
+              val msg = s"Query splicing failed due to error: ${e.stackTraceToString}"
+              // TODO When a trace logger is found instrument this
+              // println(s"[InternalError] ${msg}")
+              // Return a throw if static translation failed. This typically results from a higher-level returnError that has already returned
+              // if we do another returnError here it will override that one which is not needed.
+              report.throwError(msg)
+            // Otherwise the regular pipeline
+            case scala.util.Success(Some(staticState)) =>
               executeStatic[T](staticState, identityConverter, ExtractBehavior.Extract) // Yes we can, do it!
-            case None =>
+            case scala.util.Success(None) =>
               executeDynamic(quoted, identityConverter, ExtractBehavior.Extract, queryElaborationBehavior) // No we can't. Do dynamic
 
     def applyAction(quoted: Expr[Quoted[QAC[I, T]]]): Expr[Res] =
-      StaticTranslationMacro.applyInner[I, T, D, N](quoted, ElaborationBehavior.Skip) match
+      StaticTranslationMacro[I, T, D, N](quoted, ElaborationBehavior.Skip) match
         case Some(staticState) =>
           executeStatic[T](staticState, identityConverter, ExtractBehavior.Skip)
         case None =>
           executeDynamic(quoted, identityConverter, ExtractBehavior.Skip, ElaborationBehavior.Skip)
 
     def applyActionReturning(quoted: Expr[Quoted[QAC[I, T]]]): Expr[Res] =
-      StaticTranslationMacro.applyInner[I, T, D, N](quoted, ElaborationBehavior.Skip) match
+      StaticTranslationMacro[I, T, D, N](quoted, ElaborationBehavior.Skip) match
         case Some(staticState) =>
           executeStatic[T](staticState, identityConverter, ExtractBehavior.ExtractWithReturnAction)
         case None =>
@@ -372,6 +389,8 @@ object PrepareDynamicExecution:
       spliceBehavior match
         case SpliceBehavior.NeedsSplice => (spliceQuotations(quoted), gatherLifts(quoted))
         case SpliceBehavior.AlreadySpliced => (quoted.ast, quoted.lifts) // If already spliced, can skip all runtimeQuotes clauses since their asts have already been spliced, same with lifts
+
+    VerifyFreeVariables.runtime(splicedAst)
 
     // Pull out the all the Planter instances (for now they need to be EagerPlanters for Dynamic Queries)
     val lifts = gatheredLifts.map(lift => (lift.uid, lift)).toMap

@@ -13,21 +13,22 @@ Currently Supported:
  - ZIO, Synchronous JDBC, and Jasync Postgres contexts.
  - SQL OnConflict Clauses
  - Prepare Query (i.e. `context.prepare(query)`)
+ - Cassandra Contexts (using V4 drivers!)
 
 Currently Not Supported:
  - Dynamic Query API (i.e. [this](https://getquill.io/#quotation-dynamic-queries-dynamic-query-api))
  - [Implicit Query](https://getquill.io/#quotation-implicit-query)
  - [IO Monad](https://getquill.io/#quotation-io-monad)
- - Cassandra Contexts (Coming Soon!)
  - Monix JDBC (and Cassandra) Contexts (Coming Soon!)
  - Lagom Contexts
  - OrientDB Contexts
- - Spark Context (still waiting on Spark for Scala 2.13)
+ - Spark Context
 
 There are also quite a few new features that ProtoQuill has:
  - Scala Methods and Typeclasses Transforming ProtoQuill queries (see [Shareable Code](#shareable-code) and [Advanced Example](#advanced-example)).
  - [Custom Parsing](#custom-parsing) (Early API, still subject to change)
  - [Co-Product Rows](#co-product-rows) (Highly experimental, use with caution!)
+ - [Caliban-Integration](#caliban-integration) (Experimental deep integration with Caliban. Trivially filter/exclude any columns you want!)
 
 One other note that this documentation is not yet a fully-fledged reference for ProtoQuill features. Have a look at the original [Quill documentation](https://getquill.io/) for basic information about how Quill constructs (e.g. Queries, Joins, Actions, Batch Actions, etc...) are written in lieu of any documentation missing here.
 
@@ -48,11 +49,17 @@ Add the following to your SBT file:
 ```scala
 libraryDependencies ++= Seq(
   // Syncronous JDBC Modules
-  "io.getquill" %% "quill-jdbc" % "3.7.2.Beta1.4",
+  "io.getquill" %% "quill-jdbc" % "3.12.0.Beta1.7",
   // Or ZIO Modules
-  "io.getquill" %% "quill-jdbc-zio" % "3.7.2.Beta1.4",
-  // Postgres Async
-  "io.getquill" %% "quill-jasync-postgres" % "3.7.2.Beta1.4"
+  "io.getquill" %% "quill-jdbc-zio" % "3.12.0.Beta1.7",
+  // Or Postgres Async
+  "io.getquill" %% "quill-jasync-postgres" % "3.12.0.Beta1.7",
+  // Or Cassandra
+  "io.getquill" %% "quill-cassandra" % "3.12.0.Beta1.7",
+  // Or Cassandra + ZIO
+  "io.getquill" %% "quill-cassandra-zio" % "3.12.0.Beta1.7",
+  // Add for Caliban Integration
+  "io.getquill" %% "quill-caliban" % "3.12.0.Beta1.7"
 )
 ```
 
@@ -109,7 +116,7 @@ run(joes)
 // TODO Get SQL
 ```
 
-### Quotaion is (Mostly) Optional
+### Quotation is (Mostly) Optional
 
 If all parts of a Query are `inline def`, quotation is not strictly necessary:
 
@@ -221,7 +228,7 @@ class QueryFilterable extends Filterable[List]:
   extension [A](inline xs: List[A])
     inline def filter(inline f: A => Boolean): List[A] = xs.filter(f)
 
-run( query[Person].joes )
+run( query[Person].onlyJoes )
 // GET SQL
 
 val people: List[Person] = ...
@@ -509,6 +516,183 @@ for backwards-compatibility reasons. The Queries in which it is used will inhere
 
 For a basic reasoning of why Inline was chosen (instead of Refined-Types on `val` expressions) have a look at the video: [Quill, Dotty, And The Awesome Power of 'Inline'](https://github.com/getquill/protoquill). A more thorough explination is TBD.
 
+# Caliban Integration
+
+Experimental Caliban integration is provided by the `quill-caliban` module. This makes it relatively easy to setup a Caliban GraphQL endpoint where you can filter by any column returned from a Quill query as well as include/exclude any column, and these exclusions are pushed down to the database (In Spark-speak, these are called filter-pushdown, predicate-pushdown respectively). In order to setup the Caliban integration, do the following:
+
+```scala
+// Import Quill
+import io.getquill._
+
+// Import the Caliban integration
+import io.getquill.CalibanIntegration._
+
+// Given some simple schema
+case class PersonT(id: Int, first: String, last: String, age: Int)
+case class AddressT(ownerId: Int, street: String)
+case class PersonAddress(id: Int, first: String, last: String, age: Int, street: Option[String])
+  
+// Create a query and add .filterColumns and .filterByKeys to the end
+inline def peopleAndAddresses(inline columns: List[String], inline filters: Map[String, String]) =
+  quote {
+    // Given a query...
+    query[Person].leftJoin(query[Address]).on((p, a) => p.id == a.ownerId)
+      .map((p, a) => PersonAddress(p.id, p.first, p.last, p.age, a.map(_.street)))
+      // Add these to the end
+      .filterColumns(columns)
+      .filterByKeys(filters)
+  }
+  
+// Create a data-source that will pass along the column include/exclude and filter information
+object DataService:
+  def personAddress(columns: List[String], filters: Map[String, String]) =
+    run(q(columns, filters)).provide(Has(myDataSource))
+    // Assume this returns:
+    // List(
+    //   PersonAddress(1, "One", "A", 44, Some("123 St")),
+    //   PersonAddress(2, "Two", "B", 55, Some("123 St")),
+    //   PersonAddress(3, "Three", "C", 66, None),
+    // )
+
+// Create your Caliban Endpoint
+case class Queries(
+  personAddress: Field => (ProductArgs[PersonAddress] => Task[List[PersonAddress]])
+)
+
+// Implement the endpoint
+val endpoint =
+   graphQL(
+    RootResolver(
+      Queries(
+        personAddress =>
+          (productArgs =>
+            DataService.personAddress(
+              quillColumns(personAddress) /* From CalibanIntegration module*/, 
+              productArgs.keyValues
+            )
+          )
+      )
+    )
+  ).interpreter
+
+// Test-run the endpoint like this! (make sure not use the 'query' variable or it will collide with Quill!):
+val calibanQuery =
+  """
+  {
+    # Filter by any field in PersonAddress here including first, last, age, street! (or any combination of filters!)
+    personAddressFlat(first: "Joe") {
+      # Include/Exclude any fields from PersonAddress here!
+      id
+      last
+      street
+    }
+  }"""
+
+val output =
+  zio.Runtime.default.unsafeRun(for {
+      interpreter <- api.interpreter
+      result      <- interpreter.execute(calibanQuery)
+    } yield (result)
+  )
+  
+// The following data will be returned:
+output.data.toString == """{"personAddress":[{"id":1,"first":"One","last":"A","street":"123 St"}]}"""
+```
+You can also plug in this Caliban endpoint into ZIO-Http
+```scala
+object CalibanExample extends zio.App:
+  val myApp = for {
+    _ <- Dao.resetDatabase()
+    interpreter <- endpoints
+    _ <- Server.start(
+        port = 8088,
+        http = Http.route { case _ -> Root / "api" / "graphql" =>
+          ZHttpAdapter.makeHttpService(interpreter)
+        }
+      )
+      .forever
+  } yield ()
+
+  override def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
+    myApp.exitCode
+
+end CalibanExample
+```
+Have a look at the Quill-Caliban Examples [here](https://github.com/zio/zio-protoquill/tree/master/quill-caliban/src/test/scala/io/getquill/example) and the Quill-Caliban tests [here](https://github.com/zio/zio-protoquill/tree/master/quill-caliban/src/test/scala/io/getquill).
+
+### How it works
+
+When the `.filterColumns(columns)` and the `.filterByKeys(filters)` methods are called, the following query (that results from the Person<->Address table join):
+```sql
+SELECT
+  p.id, p.first, p.last, p.age, a.street
+FROM
+  Person p
+  LEFT JOIN Address a ON p.id = a.ownerId
+```
+...becomes this:
+```sql
+SELECT
+  CASE WHEN ? THEN p.id ELSE null END,
+  CASE WHEN ? THEN p.first ELSE null END,
+  CASE WHEN ? THEN p.last ELSE null END,
+  CASE WHEN ? THEN p.age ELSE null END,
+  CASE WHEN ? THEN a.street ELSE null END
+FROM
+  Person p
+  LEFT JOIN Address a ON p.id = a.ownerId
+WHERE
+  (cast(CASE WHEN ? THEN p.id ELSE null END as VARCHAR) = ? OR ? IS NULL)
+  AND (CASE WHEN ? THEN p.first ELSE null END = ? OR ? IS NULL)
+  AND (CASE WHEN ? THEN p.last ELSE null END = ? OR ? IS NULL)
+  AND (cast(CASE WHEN ? THEN p.age ELSE null END as VARCHAR) = ? OR ? IS NULL)
+  AND (CASE WHEN ? THEN a.street ELSE null END = ? OR ? IS NULL)
+```
+In each question mark in the `SELECT` and `WHERE` clauses, the appropriate field is selected from the `columns` list and `filters` map.
+Here is roughly how that looks:
+```sql
+SELECT
+  CASE WHEN ${columns.contains("id")} THEN p.id ELSE null END,
+  CASE WHEN ${columns.contains("first")} THEN p.first ELSE null END,
+  CASE WHEN ${columns.contains("last")} THEN p.last ELSE null END,
+  CASE WHEN ${columns.contains("age")} THEN p.age ELSE null END,
+  CASE WHEN ${columns.contains("street")} THEN a.street ELSE null END
+FROM
+  Person p
+  LEFT JOIN Address a ON p.id = a.ownerId
+WHERE
+      (cast(CASE WHEN ${filters.contains("id")} THEN p.id ELSE null END as VARCHAR) = ${filters("id").orNull} OR ${${filters("id").orNull}} IS NULL)
+  AND      (CASE WHEN ${filters.contains("first")} THEN p.first ELSE null END = ${filters("first").orNull} OR ${${filters("first").orNull}} IS NULL)
+  AND      (CASE WHEN ${filters.contains("last")} THEN p.last ELSE null END = ${filters("last").orNull} OR ${${filters("last").orNull}} IS NULL)
+  AND (cast(CASE WHEN ${filters.contains("age")} THEN p.age ELSE null END as VARCHAR) = ${filters("age").orNull} OR ${${filters("age").orNull}} IS NULL)
+  AND      (CASE WHEN ${filters.contains("street")} THEN a.street ELSE null END = ${filters("street").orNull} OR ${${filters("street").orNull}} IS NULL)
+```
+The important thing to understand is that the SQL optimizer can see into these `CASE WHEN (condition)` clauses when `condition` is a static variable and then know whether the actual column on the right-hand side of the Query actually needs to be used. In Database-Speak, we would call this SARGable.
+
+Don't take my word for it though, have a look at the examples under quill-caliban [here](https://github.com/zio/zio-protoquill/tree/master/quill-caliban/src/test/scala/io/getquill/example). For example run the CalibanExample.scala and execute the following GraphQL query:
+```
+query{
+  personAddressPlan(first: "One") {
+    plan 
+    pa {
+      id
+      street
+      first
+      last
+      # Exclude the street column
+    }
+  }
+}
+```
+
+
+In the response you will not only the results but the Query plan as well. Note that in this particular case our Query-Planner knows that:
+1. We are using the filter "One" on the Person.first column.
+2. Since the only column we care about from the Address table is Address.street and our Query doesn't even want that column (and because in our case Person<->Address is a one-to-one relationship, that means that the table Address doesn't even need to be scanned!
+
+![Screenshot from 2021-12-29 23-54-52](https://user-images.githubusercontent.com/1369480/147722872-a4801b6e-e916-427d-b134-e71bb8a0259a.png)
+
+As the writer of Caliban puts it... "From the front-end down to the DB, you only pay for what you ask!"
 
 # Interesting Ideas
  - Implement a `lazyFilterByKeys` method using the same logic as filterByKeys but using lazy lifts.

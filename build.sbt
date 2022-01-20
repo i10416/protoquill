@@ -29,7 +29,7 @@ releaseNextVersion := { ver =>
 }
 
 val isCommunityBuild =
-  sys.props.getOrElse("community", "true").toBoolean
+  sys.props.getOrElse("community", "false").toBoolean
 
 lazy val baseModules = Seq[sbt.ClasspathDep[sbt.ProjectReference]](
   `quill-sql`
@@ -40,7 +40,7 @@ lazy val sqlTestModules = Seq[sbt.ClasspathDep[sbt.ProjectReference]](
 )
 
 lazy val dbModules = Seq[sbt.ClasspathDep[sbt.ProjectReference]](
-  `quill-jdbc`, `quill-zio`, `quill-jdbc-zio`
+  `quill-jdbc`, `quill-zio`, `quill-jdbc-zio`, `quill-caliban`
 )
 
 lazy val jasyncModules = Seq[sbt.ClasspathDep[sbt.ProjectReference]](
@@ -120,13 +120,18 @@ lazy val `quill-sql` =
         "com.typesafe.scala-logging" % "scala-logging_2.13"
       ),
       libraryDependencies ++= Seq(
-        // .excludeAll(ExclusionRule(organization="com.trueaccord.scalapb")
-        ("com.lihaoyi" %% "pprint" % "0.5.6").withDottyCompat(scalaVersion.value),
-        ("io.getquill" %% "quill-core-portable" % "3.10.0").withDottyCompat(scalaVersion.value),
-        ("io.getquill" %% "quill-sql-portable" % "3.10.0").withDottyCompat(scalaVersion.value),
-        //("org.scalameta" %% "scalafmt-dynamic" % "2.7.4").withDottyCompat(scalaVersion.value),
-        //"org.scala-lang" % "scala3-library_3.0.0-M3" % (scalaVersion.value),
-        "com.typesafe.scala-logging" % "scala-logging_3" % "3.9.4"
+        ("com.lihaoyi" %% "pprint" % "0.6.6"),
+        ("io.getquill" %% "quill-core-portable" % "3.12.0").cross(CrossVersion.for3Use2_13),
+        ("io.getquill" %% "quill-sql-portable" % "3.12.0").cross(CrossVersion.for3Use2_13),
+        "com.typesafe.scala-logging" %% "scala-logging" % "3.9.4",
+        ("org.scalameta" %% "scalafmt-core" % "3.1.0")
+          .excludeAll(
+            ExclusionRule(organization = "com.lihaoyi", name = "sourcecode_2.13"),
+            ExclusionRule(organization = "com.lihaoyi", name = "fansi_2.13"),
+            ExclusionRule(organization = "com.lihaoyi", name = "pprint_2.13"),
+            ExclusionRule(organization = "org.scala-lang.modules", name = "scala-xml_2.13")
+          )
+          .cross(CrossVersion.for3Use2_13)
       ),
       // If it's a community-build we're using a scala incremental version so there's no scalatest for that
       libraryDependencies ++= {
@@ -134,20 +139,13 @@ lazy val `quill-sql` =
           Seq()
         else
           Seq(
-            "org.scalatest" % "scalatest_3" % "3.2.9" % "test",
-            "org.scalatest" % "scalatest-mustmatchers_3" % "3.2.9" % "test",
+            "org.scalatest" %% "scalatest" % "3.2.9" % Test,
+            "org.scalatest" %% "scalatest-mustmatchers" % "3.2.9" % Test,
             "com.vladsch.flexmark" % "flexmark-all" % "0.35.10" % Test
           )
       },
       // TODO remove this if in community build since there's no scalatest
-      Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-oGF"),
-      // If it's a community-build we're using a scala incremental and scalafmt doesn't seem to work well with that
-      libraryDependencies ++= {
-        if (isCommunityBuild)
-          Seq()
-        else
-          Seq(("org.scalameta" %% "scalafmt-cli" % "2.7.5" ).excludeAll(ExclusionRule(organization = "org.scala-lang.modules", name = "scala-xml_2.13")).withDottyCompat(scalaVersion.value))
-      }
+      Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-oGF")
     ).dependsOn({
       // If it's a community build, we cannot include scalatest since the scalatest for the corresponding
       // incremental scala version does not exist. So we need to include this module that "shims-it-out" so we can just be able
@@ -181,7 +179,7 @@ lazy val `quill-jasync` =
       Test / fork := true,
       libraryDependencies ++= Seq(
         "com.github.jasync-sql" % "jasync-common" % "1.1.4",
-        ("org.scala-lang.modules" %% "scala-java8-compat" % "0.9.1").withDottyCompat(scalaVersion.value)
+        ("org.scala-lang.modules" %% "scala-java8-compat" % "1.0.1")
       )
     )
     .dependsOn(`quill-sql` % "compile->compile;test->test")
@@ -197,6 +195,27 @@ lazy val `quill-jasync-postgres` =
       )
     )
     .dependsOn(`quill-jasync` % "compile->compile;test->test")
+
+lazy val `quill-caliban` =
+  (project in file("quill-caliban"))
+    .settings(commonSettings: _*)
+    .settings(releaseSettings: _*)
+    .settings(
+      Test / fork := true,
+      libraryDependencies ++= Seq(
+        "com.github.ghostdogpr" %% "caliban" % "1.2.4",
+        "com.github.ghostdogpr" %% "caliban-zio-http"   % "1.2.4",
+        // Adding this to main dependencies would force users to use logback-classic for SLF4j unless the specifically remove it
+        // seems to be safer to just exclude & add a commented about need for a SLF4j implementation in Docs.
+        "ch.qos.logback" % "logback-classic" % "1.2.3" % Test,
+        "io.d11" %% "zhttp"      % "1.0.0.0-RC17" % Test,
+        // Don't want to make this dependant on zio-test for the testing code so importing this here separately
+        "org.scalatest" %% "scalatest" % "3.2.9" % Test,
+        "org.scalatest" %% "scalatest-mustmatchers" % "3.2.9" % Test,
+        "org.postgresql"          %  "postgresql"              % "42.2.18"             % Test,
+      )
+    )
+    .dependsOn(`quill-jdbc-zio` % "compile->compile")
 
 lazy val `quill-zio` =
   (project in file("quill-zio"))
@@ -217,6 +236,8 @@ lazy val `quill-jdbc-zio` =
     .settings(releaseSettings: _*)
     .settings(jdbcTestingLibraries: _*)
     .settings(
+       Test / runMain / fork := true,
+       Test / fork := true,
        Test / testGrouping := {
         (Test / definedTests).value map { test =>
           if (test.name endsWith "IntegrationSpec")
@@ -239,7 +260,8 @@ lazy val `quill-cassandra` =
     .settings(
       Test / fork := true,
       libraryDependencies ++= Seq(
-        "com.datastax.cassandra" %  "cassandra-driver-core" % "3.7.2"
+        "com.datastax.oss" % "java-driver-core" % "4.13.0",
+        ("org.scala-lang.modules" %% "scala-java8-compat" % "0.9.1").withDottyCompat(scalaVersion.value)
       )
     )
     .dependsOn(`quill-sql` % "compile->compile;test->test")
@@ -251,9 +273,10 @@ lazy val `quill-cassandra-zio` =
     .settings(
       Test / fork := true,
       libraryDependencies ++= Seq(
-        "dev.zio" %% "zio" % "1.0.9",
-        "dev.zio" %% "zio-streams" % "1.0.9",
-        ("dev.zio" %% "zio-interop-guava" % "30.1.0.3").excludeAll(ExclusionRule(organization = "dev.zio")).withDottyCompat(scalaVersion.value)
+        "com.datastax.oss" % "java-driver-core" % "4.13.0",
+        "dev.zio" %% "zio" % "1.0.12",
+        "dev.zio" %% "zio-streams" % "1.0.12",
+        ("dev.zio" %% "zio-interop-guava" % "30.1.0.3").excludeAll(ExclusionRule(organization = "dev.zio")).cross(CrossVersion.for3Use2_13)
       )
     )
     .dependsOn(`quill-cassandra` % "compile->compile;test->test")
@@ -284,7 +307,7 @@ lazy val jdbcTestingSettings = jdbcTestingLibraries ++ Seq(
 
 lazy val basicSettings = Seq(
   scalaVersion := {
-    if (isCommunityBuild) dottyLatestNightlyBuild.get else "3.0.0"
+    if (isCommunityBuild) dottyLatestNightlyBuild().get else "3.0.2"
   },
   organization := "io.getquill",
   // The -e option is the 'error' report of ScalaTest. We want it to only make a log
@@ -296,7 +319,7 @@ lazy val basicSettings = Seq(
   //   //Tests.Argument(TestFrameworks.ScalaTest, "-h", "testresults")
   // ),
   scalacOptions ++= Seq(
-    "-language:implicitConversions"
+    "-language:implicitConversions",
   )
 )
 
