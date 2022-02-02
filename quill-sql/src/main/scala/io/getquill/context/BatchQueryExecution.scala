@@ -51,6 +51,7 @@ import io.getquill.QAC
 import io.getquill.parser.Lifter
 import io.getquill.metaprog.InjectableEagerPlanterExpr
 import _root_.io.getquill.norm.BetaReduction
+import io.getquill.context.Execution.ElaborationBehavior
 
 trait BatchContextOperation[I, T, A <: QAC[I, T] with Action[I], D <: Idiom, N <: NamingStrategy, PrepareRow, ResultRow, Session, Res](val idiom: D, val naming: N) {
   def execute(sql: String, prepare: List[(PrepareRow, Session) => (List[Any], PrepareRow)], extractor: Extraction[ResultRow, Session, T], executionInfo: ExecutionInfo): Res
@@ -191,6 +192,7 @@ object DynamicBatchQueryExecution:
         rawExtractor,
         batchContextOperation.idiom,
         batchContextOperation.naming,
+        ElaborationBehavior.Skip,
         SpliceBehavior.AlreadySpliced
       )
 
@@ -240,7 +242,7 @@ object BatchQueryExecution:
 
     def prepareLifts(): (ast.CaseClass, List[Expr[InjectableEagerPlanter[_, PrepareRow, Session]]]) =
       // Use some custom functionality in the lift macro to prepare the case class an injectable lifts
-      // e.g. if T is Person(name: String, age: Int) and we do liftQuery(people:List[Person]).foreach(p => query[Person].insert(p))
+      // e.g. if T is Person(name: String, age: Int) and we do liftQuery(people:List[Person]).foreach(p => query[Person].insertValue(p))
       // ast = CaseClass(name -> lift(UUID1), age -> lift(UUID2))
       // lifts = List(InjectableEagerLift(p.name, UUID1), InjectableEagerLift(p.age, UUID2))
       val (caseClassAst, perRowLifts) = LiftMacro.liftInjectedProduct[I, PrepareRow, Session]
@@ -262,7 +264,7 @@ object BatchQueryExecution:
     end prepareLifts
 
     /**
-     * (TODO need to fix querySchema with batch usage i.e. liftQuery(people).insert(p => querySchema[Person](...).insert(p))
+     * (TODO need to fix querySchema with batch usage i.e. liftQuery(people).insert(p => querySchema[Person](...).insertValue(p))
      * Create a quotation with the elaborated entity
      * e.g. given    liftQuery(people).foreach(p => query[Person].insert[Person](p))
      * then create a liftQuery(people).foreach(p => query[Person].insert[Person](_.name -> lift(p.name), _.age -> lift(p.age)))

@@ -8,6 +8,8 @@ import java.io.{File => JFile}
 
 ThisBuild / versionScheme := Some("always")
 
+addCommandAlias("runCommunityBuild", "; quill-sql/test; quill-sql-tests/test; quill-cassandra/Test/compile")
+
 // During release cycles, GPG will expect passphrase user-input EVEN when --passphrase is specified
 // this should add --pinentry-loopback in order to disable that. See here for more info:
 // https://github.com/sbt/sbt-pgp/issues/178
@@ -31,6 +33,12 @@ releaseNextVersion := { ver =>
 val isCommunityBuild =
   sys.props.getOrElse("community", "false").toBoolean
 
+val isCommunityRemoteBuild =
+  sys.props.getOrElse("communityRemote", "false").toBoolean
+
+lazy val scalatestVersion =
+  if (isCommunityRemoteBuild) "3.2.7" else "3.2.9"
+
 lazy val baseModules = Seq[sbt.ClasspathDep[sbt.ProjectReference]](
   `quill-sql`
 )
@@ -52,37 +60,46 @@ lazy val bigdataModules = Seq[sbt.ClasspathDep[sbt.ProjectReference]](
 )
 
 lazy val allModules =
-  baseModules ++ dbModules ++ jasyncModules ++ bigdataModules
+  baseModules ++ sqlTestModules ++ dbModules ++ jasyncModules ++ bigdataModules
+
+lazy val communityBuildModules =
+  Seq[sbt.ClasspathDep[sbt.ProjectReference]](
+    `quill-sql`, `quill-sql-tests`, `quill-cassandra`
+  )
 
 val filteredModules = {
   val modulesStr = sys.props.get("modules")
-  println(s"Modules Argument Value: ${modulesStr}")
+  println(s"SBT =:> Modules Argument Value: ${modulesStr}. community=${isCommunityBuild}, communityRemote=${isCommunityRemoteBuild}")
 
-  val modules = modulesStr match {
+  val selectedModules = modulesStr match {
+    case _ if (isCommunityBuild) =>
+      println("SBT =:> Doing Community Build! Filtering Community-Build Modules Only")
+      communityBuildModules
     case Some("base") =>
-      println("Compiling Base Modules")
+      println("SBT =:> Compiling Base Modules")
       baseModules
     case Some("sqltest") =>
-      println("Compiling SQL test Modules")
+      println("SBT =:> Compiling SQL test Modules")
       sqlTestModules
     case Some("db") =>
-      println("Compiling Database Modules")
+      println("SBT =:> Compiling Database Modules")
       dbModules
     case Some("async") =>
-      println("Compiling Async Database Modules")
+      println("SBT =:> Compiling Async Database Modules")
       jasyncModules
     case Some("bigdata") =>
-      println("Compiling Big Data Modules")
+      println("SBT =:> Compiling Big Data Modules")
       bigdataModules
     case Some("none") =>
-      println("Invoking Aggregate Project")
+      println("SBT =:> Invoking Aggregate Project")
       Seq[sbt.ClasspathDep[sbt.ProjectReference]]()
     case _ =>
-      println("Compiling All Modules")
-        allModules
+      println("SBT =:> No Modules Switch Specified, Compiling All Modules by Default")
+      allModules
   }
-  println(s"Returning modules list: ${modules.map(_.project)}")
-  modules
+
+  println(s"=== Selected Modules ===\n${selectedModules.map(_.project.toString).toList.mkString("\n")}\n=== End Selected Modules ===")
+  selectedModules
 }
 
 lazy val `quill` = {
@@ -102,10 +119,6 @@ lazy val `quill` = {
     )
 }
 
-lazy val `scalatest-shim` =
-  (project in file("scalatest-shim"))
-    .settings(basicSettings: _*)
-
 lazy val `quill-sql` =
   (project in file("quill-sql"))
     .settings(commonSettings: _*)
@@ -120,41 +133,24 @@ lazy val `quill-sql` =
         "com.typesafe.scala-logging" % "scala-logging_2.13"
       ),
       libraryDependencies ++= Seq(
+        // Needs to be in-sync with both quill-engine and scalafmt-core or ClassNotFound
+        // errors will happen. Even if the pprint classes are actually there
         ("com.lihaoyi" %% "pprint" % "0.6.6"),
-        ("io.getquill" %% "quill-core-portable" % "3.12.0").cross(CrossVersion.for3Use2_13),
-        ("io.getquill" %% "quill-sql-portable" % "3.12.0").cross(CrossVersion.for3Use2_13),
+        "io.getquill" %% "quill-engine" % "3.16.0",
+        ("io.getquill" %% "quill-util" % "3.16.0")
+          .excludeAll({
+            if (isCommunityBuild)
+              Seq(ExclusionRule(organization = "org.scalameta", name = "scalafmt-core_2.13"))
+            else
+              Seq()
+          }: _*),
         "com.typesafe.scala-logging" %% "scala-logging" % "3.9.4",
-        ("org.scalameta" %% "scalafmt-core" % "3.1.0")
-          .excludeAll(
-            ExclusionRule(organization = "com.lihaoyi", name = "sourcecode_2.13"),
-            ExclusionRule(organization = "com.lihaoyi", name = "fansi_2.13"),
-            ExclusionRule(organization = "com.lihaoyi", name = "pprint_2.13"),
-            ExclusionRule(organization = "org.scala-lang.modules", name = "scala-xml_2.13")
-          )
-          .cross(CrossVersion.for3Use2_13)
-      ),
-      // If it's a community-build we're using a scala incremental version so there's no scalatest for that
-      libraryDependencies ++= {
-        if (isCommunityBuild)
-          Seq()
-        else
-          Seq(
-            "org.scalatest" %% "scalatest" % "3.2.9" % Test,
-            "org.scalatest" %% "scalatest-mustmatchers" % "3.2.9" % Test,
-            "com.vladsch.flexmark" % "flexmark-all" % "0.35.10" % Test
-          )
-      },
-      // TODO remove this if in community build since there's no scalatest
-      Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-oGF")
-    ).dependsOn({
-      // If it's a community build, we cannot include scalatest since the scalatest for the corresponding
-      // incremental scala version does not exist. So we need to include this module that "shims-it-out" so we can just be able
-      // to compile stuff (i.e. on an incremental scala version)
-      if (isCommunityBuild)
-        Seq(`scalatest-shim` % "test->test")
-      else
-        Seq()
-    }: _*)
+        "org.scalatest" %% "scalatest" % scalatestVersion % Test,
+        "org.scalatest" %% "scalatest-mustmatchers" % scalatestVersion % Test,
+        "com.vladsch.flexmark" % "flexmark-all" % "0.35.10" % Test
+      )//,
+      //Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-oGF")
+    )
 
 // Moving heavy tests to separate module so it can be compiled in parallel with others
 lazy val `quill-sql-tests` =
@@ -178,8 +174,7 @@ lazy val `quill-jasync` =
     .settings(
       Test / fork := true,
       libraryDependencies ++= Seq(
-        "com.github.jasync-sql" % "jasync-common" % "1.1.4",
-        ("org.scala-lang.modules" %% "scala-java8-compat" % "1.0.1")
+        "com.github.jasync-sql" % "jasync-common" % "1.1.4"
       )
     )
     .dependsOn(`quill-sql` % "compile->compile;test->test")
@@ -210,8 +205,8 @@ lazy val `quill-caliban` =
         "ch.qos.logback" % "logback-classic" % "1.2.3" % Test,
         "io.d11" %% "zhttp"      % "1.0.0.0-RC17" % Test,
         // Don't want to make this dependant on zio-test for the testing code so importing this here separately
-        "org.scalatest" %% "scalatest" % "3.2.9" % Test,
-        "org.scalatest" %% "scalatest-mustmatchers" % "3.2.9" % Test,
+        "org.scalatest" %% "scalatest" % scalatestVersion % Test,
+        "org.scalatest" %% "scalatest-mustmatchers" % scalatestVersion % Test,
         "org.postgresql"          %  "postgresql"              % "42.2.18"             % Test,
       )
     )
@@ -224,8 +219,8 @@ lazy val `quill-zio` =
     .settings(
       Test / fork := true,
       libraryDependencies ++= Seq(
-        "dev.zio" %% "zio" % "1.0.8",
-        "dev.zio" %% "zio-streams" % "1.0.8"
+        "dev.zio" %% "zio" % "1.0.12",
+        "dev.zio" %% "zio-streams" % "1.0.12"
       )
     )
     .dependsOn(`quill-sql` % "compile->compile;test->test")
@@ -258,10 +253,9 @@ lazy val `quill-cassandra` =
     .settings(commonSettings: _*)
     .settings(releaseSettings: _*)
     .settings(
-      Test / fork := true,
+      Test / fork := false,
       libraryDependencies ++= Seq(
-        "com.datastax.oss" % "java-driver-core" % "4.13.0",
-        ("org.scala-lang.modules" %% "scala-java8-compat" % "0.9.1").withDottyCompat(scalaVersion.value)
+        "com.datastax.oss" % "java-driver-core" % "4.13.0"
       )
     )
     .dependsOn(`quill-sql` % "compile->compile;test->test")
@@ -286,7 +280,16 @@ lazy val `quill-cassandra-zio` =
 val includeFormatter =
   sys.props.getOrElse("formatScala", "false").toBoolean
 
-lazy val commonSettings = /* ReleasePlugin.extraReleaseCommands ++  */ basicSettings
+lazy val commonSettings =
+  basicSettings ++
+  {
+    if (isCommunityRemoteBuild)
+      Seq(
+        Compile / classLoaderLayeringStrategy := ClassLoaderLayeringStrategy.Flat
+      )
+    else
+      Seq()
+  }
 
 lazy val jdbcTestingLibraries = Seq(
   libraryDependencies ++= Seq(
@@ -306,6 +309,14 @@ lazy val jdbcTestingSettings = jdbcTestingLibraries ++ Seq(
 )
 
 lazy val basicSettings = Seq(
+  // ,
+  //        ("org.scala-lang.modules" %% "scala-java8-compat" % "1.0.1")
+  libraryDependencies ++= Seq(
+    ("org.scala-lang.modules" %% "scala-java8-compat" % "1.0.1")
+  ),
+  excludeDependencies ++= Seq(
+    ExclusionRule("org.scala-lang.modules", "scala-collection-compat_2.13")
+  ),
   scalaVersion := {
     if (isCommunityBuild) dottyLatestNightlyBuild().get else "3.0.2"
   },

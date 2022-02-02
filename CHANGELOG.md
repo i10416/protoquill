@@ -1,3 +1,26 @@
+# 3.16.0.Beta2.1
+
+- [Bump engine version](https://github.com/zio/zio-protoquill/pull/62)
+- [Remove deprecated EntityQuery.insert/update APIs](https://github.com/zio/zio-protoquill/pull/61)
+
+* Note: Similar to zio-quill/pull/2413 this change just removes the deprecated
+  `EntityQuery.insert(CaseClass)` and `EntityQuery.update(CaseClass)` APIs that have been updated
+  to `EntityQuery.insertValue(CaseClass)` and `EntityQuery.updateValue(CaseClass)`,
+  and it is the only change in this release. This is needed because of lampepfl/dotty#14043.
+
+# 3.15.0.Beta2.0
+
+- [Bump ZIO to 1.0.12](https://github.com/zio/zio-protoquill/pull/57)
+- [Update quill-engine to 3.15.0, update APIs](https://github.com/zio/zio-protoquill/pull/59)
+- [Prepare build for upcoming Scala2-Quill dependency and community build integration](https://github.com/zio/zio-protoquill/pull/58)
+- [Remove elaboration from SELECT queries](https://github.com/zio/zio-protoquill/pull/56)
+- [Introduce implicit hint to fail non-static query build](https://github.com/zio/zio-protoquill/pull/55)
+- [ProtoQuill does not support Scala 2 style implicit extensions. Warn about it](https://github.com/zio/zio-protoquill/pull/53)
+- [Tail-recursive generic derivation](https://github.com/zio/zio-protoquill/pull/52)
+- [Cleanup in various places](https://github.com/zio/zio-protoquill/pull/50)
+- [Refactor Parser into a clean ADT](https://github.com/zio/zio-protoquill/pull/48)
+- [Fix stack overflow from enums with no encoder](https://github.com/zio/zio-protoquill/pull/47)
+
 # 3.12.0.Beta1.7
 
 * [Fixing Caliban integration & adding quill-caliban to build](https://github.com/zio/zio-protoquill/pull/44)
