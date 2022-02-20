@@ -135,9 +135,10 @@ lazy val `quill-sql` =
       libraryDependencies ++= Seq(
         // Needs to be in-sync with both quill-engine and scalafmt-core or ClassNotFound
         // errors will happen. Even if the pprint classes are actually there
+        "io.suzaku" %% "boopickle" % "1.4.0",
         ("com.lihaoyi" %% "pprint" % "0.6.6"),
-        "io.getquill" %% "quill-engine" % "3.16.0",
-        ("io.getquill" %% "quill-util" % "3.16.0")
+        ("io.getquill" %% "quill-engine" % "3.16.3").excludeAll(ExclusionRule(organization = "com.twitter")),
+        ("io.getquill" %% "quill-util" % "3.16.3")
           .excludeAll({
             if (isCommunityBuild)
               Seq(ExclusionRule(organization = "org.scalameta", name = "scalafmt-core_2.13"))
@@ -198,8 +199,8 @@ lazy val `quill-caliban` =
     .settings(
       Test / fork := true,
       libraryDependencies ++= Seq(
-        "com.github.ghostdogpr" %% "caliban" % "1.2.4",
-        "com.github.ghostdogpr" %% "caliban-zio-http"   % "1.2.4",
+        "com.github.ghostdogpr" %% "caliban" % "1.3.3",
+        "com.github.ghostdogpr" %% "caliban-zio-http"   % "1.3.3",
         // Adding this to main dependencies would force users to use logback-classic for SLF4j unless the specifically remove it
         // seems to be safer to just exclude & add a commented about need for a SLF4j implementation in Docs.
         "ch.qos.logback" % "logback-classic" % "1.2.3" % Test,
@@ -318,7 +319,7 @@ lazy val basicSettings = Seq(
     ExclusionRule("org.scala-lang.modules", "scala-collection-compat_2.13")
   ),
   scalaVersion := {
-    if (isCommunityBuild) dottyLatestNightlyBuild().get else "3.0.2"
+    if (isCommunityBuild) dottyLatestNightlyBuild().get else "3.1.0"
   },
   organization := "io.getquill",
   // The -e option is the 'error' report of ScalaTest. We want it to only make a log

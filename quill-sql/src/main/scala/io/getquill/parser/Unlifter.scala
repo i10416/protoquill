@@ -29,13 +29,13 @@ object Unlifter {
     def apply(expr: Expr[T])(using Quotes): T =
       import quotes.reflect._
       expr match
-        case '{ SerialHelper.fromSerializedJVM[tt](${Expr(serial: String)}) } if (TypeRepr.of[tt] <:< TypeRepr.of[Ast]) =>
-          SerialHelper.fromSerializedJVM[Ast](serial).asInstanceOf[T]
+        case '{ SerialHelper.fromSerialized[tt](${Expr(serial: String)}) } if (TypeRepr.of[tt] <:< TypeRepr.of[Ast]) =>
+          SerialHelper.fromSerialized[Ast](serial).asInstanceOf[T]
         // On JVM, a Quat must be serialized and then lifted from the serialized state i.e. as a FromSerialized using JVM (due to 64KB method limit)
-        case '{ Quat.Product.fromSerializedJVM(${Expr(str: String)}) } =>
-          Quat.Product.fromSerializedJVM(str).asInstanceOf[T]
-        case '{ Quat.fromSerializedJVM(${Expr(str: String)}) } =>
-          Quat.fromSerializedJVM(str).asInstanceOf[T]
+        case '{ SerialHelper.QuatProduct.fromSerialized(${Expr(str: String)}) } =>
+          SerialHelper.QuatProduct.fromSerialized(str).asInstanceOf[T]
+        case '{ SerialHelper.Quat.fromSerialized(${Expr(str: String)}) } =>
+          SerialHelper.Quat.fromSerialized(str).asInstanceOf[T]
         case _ =>
           unlift.lift(expr).getOrElse {
             report.throwError(
@@ -262,7 +262,7 @@ object Unlifter {
       case Is[Property]( '{ Property(${ast}, ${name}) } ) => Property(ast.unexpr, constString(name))
       case Is[ScalarTag]( '{ScalarTag(${uid})} ) => ScalarTag(constString(uid))
       case Is[QuotationTag]( '{ QuotationTag($uid) } ) => QuotationTag(constString(uid))
-      case Is[Infix]( '{ Infix($parts, $params, $pure, $quat) } ) => Infix(parts.unexpr, params.unexpr, pure.unexpr, quat.unexpr)
+      case Is[Infix]( '{ Infix($parts, $params, $pure, $transparent, $quat) } ) => Infix(parts.unexpr, params.unexpr, pure.unexpr, transparent.unexpr, quat.unexpr)
       case Is[Tuple]( '{ Tuple.apply($values) } ) => Tuple(values.unexpr)
       case Is[CaseClass]( '{ CaseClass(${values}: List[(String, Ast)]) } ) => CaseClass(values.unexpr)
       case Is[IterableOperation]( unliftTraversableOperation(o) ) => o

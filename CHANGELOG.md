@@ -1,3 +1,16 @@
+# 3.16.3.Beta2.4
+
+- [Fixing case of filter(lift).insert/updateValue](https://github.com/zio/zio-protoquill/pull/76)
+
+# 3.16.3.Beta2.3
+
+- [Bump engine/util to 3.16.3](https://github.com/zio/zio-protoquill/pull/74)
+- [Change AST Serialization to BooPickle](https://github.com/zio/zio-protoquill/pull/72)
+
+# 3.16.1.Beta2.2
+
+- [Bump engine to 3.16.1](https://github.com/zio/zio-protoquill/pull/65)
+
 # 3.16.0.Beta2.1
 
 - [Bump engine version](https://github.com/zio/zio-protoquill/pull/62)
