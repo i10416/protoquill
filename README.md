@@ -5,7 +5,7 @@ ProtoQuill is the continuation of [Quill: Free/Libre Compile-time Language Integ
 Not all Contexts and not all Functionality is Supported yet. Here is a rough list of both:
 
 Currently Supported:
- - Basic Quotation, Querying, Lifting, and Composition (Compile-Time and Dynamic)
+ - Basic Quotation, Querying, Lifting, and Types (Compile-Time and Dynamic)
  - Inner/Outer, Left/Right joins
  - Query.map/flatMap/concatMap/filter other [query constructs](https://getquill.io/#quotation-queries).
  - Insert, Update, Delete [Actions](https://getquill.io/#quotation-actions) (Compile-Time and Dynamic)
@@ -13,22 +13,24 @@ Currently Supported:
  - ZIO, Synchronous JDBC, and Jasync Postgres contexts.
  - SQL OnConflict Clauses
  - Prepare Query (i.e. `context.prepare(query)`)
+ - Translate Query (i.e. `context.translate(query)`)
  - Cassandra Contexts (using V4 drivers!)
 
-Currently Not Supported:
+Not Supported:
+ - Implicit class based extensions. Please see the [Extensions](https://github.com/zio/zio-protoquill#extensions) section below on how to do this.
+
+Planned Future Support
  - Dynamic Query API (i.e. [this](https://getquill.io/#quotation-dynamic-queries-dynamic-query-api))
- - [Implicit Query](https://getquill.io/#quotation-implicit-query)
- - [IO Monad](https://getquill.io/#quotation-io-monad)
  - Monix JDBC (and Cassandra) Contexts (Coming Soon!)
- - Lagom Contexts
  - OrientDB Contexts
  - Spark Context
 
 There are also quite a few new features that ProtoQuill has:
  - Scala Methods and Typeclasses Transforming ProtoQuill queries (see [Shareable Code](#shareable-code) and [Advanced Example](#advanced-example)).
- - [Custom Parsing](#custom-parsing) (Early API, still subject to change)
+ - [Custom Parsing](#custom-parsing) - Write parsers for custom user code!
  - [Co-Product Rows](#co-product-rows) (Highly experimental, use with caution!)
  - [Caliban-Integration](#caliban-integration) (Experimental deep integration with Caliban. Trivially filter/exclude any columns you want!)
+ - [Dependent Contexts](https://github.com/zio/zio-quill#dependent-contexts) - In Scala2-Quill Dependent Contexts were demonstrated as a typical example of the limitations of working with Quoted blocks. In ProtoQuill these work as expected since there are no path dependant types in the ProtoQuill output. Have a look at this [scastie example](https://scastie.scala-lang.org/TO5dF87jQQegUGqmIQtbew) for more information.
 
 One other note that this documentation is not yet a fully-fledged reference for ProtoQuill features. Have a look at the original [Quill documentation](https://getquill.io/) for basic information about how Quill constructs (e.g. Queries, Joins, Actions, Batch Actions, etc...) are written in lieu of any documentation missing here.
 
@@ -398,7 +400,7 @@ To use co-product rows do the following:
 
 ## Custom Parsing
 
-WARNING: This feature is somewhat experimental and the API is subject to change. Please use with caution.
+The Parser API has been refined considerably in ProtoQuill Beta2 and it is now in a ready state.
 
 ### Reason for This
 
@@ -514,7 +516,7 @@ for backwards-compatibility reasons. The Queries in which it is used will inhere
 
 # Rationale for Inline
 
-For a basic reasoning of why Inline was chosen (instead of Refined-Types on `val` expressions) have a look at the video: [Quill, Dotty, And The Awesome Power of 'Inline'](https://github.com/getquill/protoquill). A more thorough explination is TBD.
+For a basic reasoning of why Inline was chosen (instead of Refined-Types on `val` expressions) have a look at the video: [Quill, Dotty, And The Awesome Power of 'Inline'](https://www.youtube.com/watch?v=SmBpGkIsJIU). A more thorough explination is TBD.
 
 # Caliban Integration
 
@@ -531,7 +533,7 @@ import io.getquill.CalibanIntegration._
 case class PersonT(id: Int, first: String, last: String, age: Int)
 case class AddressT(ownerId: Int, street: String)
 case class PersonAddress(id: Int, first: String, last: String, age: Int, street: Option[String])
-  
+
 // Create a query and add .filterColumns and .filterByKeys to the end
 inline def peopleAndAddresses(inline columns: List[String], inline filters: Map[String, String]) =
   quote {
@@ -542,7 +544,7 @@ inline def peopleAndAddresses(inline columns: List[String], inline filters: Map[
       .filterColumns(columns)
       .filterByKeys(filters)
   }
-  
+
 // Create a data-source that will pass along the column include/exclude and filter information
 object DataService:
   def personAddress(columns: List[String], filters: Map[String, String]) =
@@ -567,7 +569,7 @@ val endpoint =
         personAddress =>
           (productArgs =>
             DataService.personAddress(
-              quillColumns(personAddress) /* From CalibanIntegration module*/, 
+              quillColumns(personAddress) /* From CalibanIntegration module*/,
               productArgs.keyValues
             )
           )
@@ -594,7 +596,7 @@ val output =
       result      <- interpreter.execute(calibanQuery)
     } yield (result)
   )
-  
+
 // The following data will be returned:
 output.data.toString == """{"personAddress":[{"id":1,"first":"One","last":"A","street":"123 St"}]}"""
 ```
@@ -673,7 +675,7 @@ Don't take my word for it though, have a look at the examples under quill-caliba
 ```
 query{
   personAddressPlan(first: "One") {
-    plan 
+    plan
     pa {
       id
       street
