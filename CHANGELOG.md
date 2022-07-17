@@ -1,3 +1,53 @@
+# 4.1.0-V2
+
+- [Implementing dynamic splices via #${splice} like Scala2-Quill](https://github.com/zio/zio-protoquill/pull/153)
+
+# 4.1.0
+
+- [Integrating groupByMap from Scala2-Quill. Also EnableTrace/DisablePhase](https://github.com/zio/zio-protoquill/pull/151)
+
+# 4.0.0
+
+- [Bump to ZIO 2.0.0 Release Version](https://github.com/zio/zio-protoquill/pull/146)
+
+# 3.19.0
+
+- [Update to Jasync 2. Additional Jasync SSL Configs](https://github.com/zio/zio-protoquill/pull/142)
+- [Implement insert/update/delete.returningMany](https://github.com/zio/zio-protoquill/pull/117)
+
+# 3.18.0
+
+- [Correct decoding Option[Product] and fix complex insertValue encoders](https://github.com/zio/zio-protoquill/pull/109)
+
+#### Migration Notes:
+- Similar to [2504](https://github.com/zio/zio-quill/pull/2504) in Scala2-Quill, [109](https://github.com/zio/zio-protoquill/pull/109) in ProtoQuill changes the handling of optional-product rows. Whereas before, if any non-optional column of an optional-product row was null, then entre optional-product would be null. Now however, an optional-product will only be null if every column inside is null. For example, before, if a query returning `Person(name:Option(Name(first:String, last:String)), age: Int)` resulted in the row `ResultRow("Joe", null, 123)` before the entity would be decoded into `Person(None, 123)` (i.e. the optional-product `Option[Name]` would decode to `None`).<br>
+  Now however, `Option[Name]` only decodes to `None` if every column inside it is null. This means that the `ResultRow("Joe", null, 123)` decodes to `Person(Name("Joe", 0 /*default-placeholder for null*/), 123)`. Only when the both `first` and `last` columns in Name are null i.e. `ResultRow(null, null, 123)` will the result be: `Person(None, 123)`.
+
+# 3.16.5-Beta31
+
+- [Fix Batch Insertion/Update for tuple-based fields](https://github.com/zio/zio-protoquill/pull/103)
+
+# 3.16.5-Beta30
+
+- [Enhance Batch Queries. Support multiple lifts.](https://github.com/zio/zio-protoquill/pull/100)
+
+# 3.16.5-Beta29
+
+- [Integrating Doobie Support](https://github.com/zio/zio-protoquill/pull/98)
+
+# 3.16.4-Beta28
+
+- [Move to top-level. Increment with a dummy version.](https://github.com/zio/zio-protoquill/commit/8597a5f3d45bf5e68fcb8f2df1e2aa510213c5dd)
+- [Another IntelliJ (SCL-20185) Workaround](https://github.com/zio/zio-protoquill/commit/6c4f75d9a40804b17dd9182009b9ab8e5d8c0c93)
+
+Note: Changing the version convention due to findings of [SCL-19345](https://youtrack.jetbrains.com/issue/SCL-19345). This should allow correct Scala 3 code identification in IntelliJ. Also moving DSL to top level since Tasty reader seems to process that correctly.
+
+# 3.16.4-Beta2.7
+
+- [Working around semver and multi-inherit limitations in IntelliJ SCL-19345](https://github.com/zio/zio-protoquill/actions/runs/2270134936)
+
+Note: This release is to try to resolve some IntelliJ issues regarding SCL-19345. There are no functionality changes. For this reason I had to change the version convention.
+
 # 3.16.4.Beta2.6
 
 - [Enable context.translate in remaining contexts](https://github.com/zio/zio-protoquill/pull/91)

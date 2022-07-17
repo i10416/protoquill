@@ -6,15 +6,13 @@ import scala.util.Success
 import scala.util.Failure
 import scala.quoted._
 import io.getquill.util.Messages.TraceType
-
+import io.getquill.metaprog.SummonTranspileConfig
 
 // TODO Note that this does not seem to work when .type is used directly.
 // For example, in Dsl.scala, I tried using BaseParserFactory.type
 // but then created a delegate trait BaseParsreFactory for the object BaseParseFactory
 // which I then used directly. This worked while BaseParseFactory.type did not.
 object Load:
-  val interp = new Interpolator(TraceType.Warning, 1)
-  import interp._
 
   private def `endWith$`(str: String) =
     if (str.endsWith("$")) str else str + "$"
@@ -53,7 +51,7 @@ object Load:
       } yield objectLoad
 
     def apply[T: Type](using Quotes): Try[T] =
-      import quotes.reflect.{ TypeRepr => TTypeRepr, _ }
+      import quotes.reflect.{TypeRepr => TTypeRepr, _}
       val tryLoad = fromTypeRepr(TTypeRepr.of[T])
       tryLoad.map(_.asInstanceOf[T])
   end Module
@@ -73,6 +71,9 @@ object Load:
       } yield objectLoad
 
   private[Load] def symbolType(using Quotes)(loadClassType: quotes.reflect.TypeRepr): Try[SymbolLoadType] =
+    val traceConfig = SummonTranspileConfig().traceConfig
+    val interp = new Interpolator(TraceType.Warning, traceConfig, 1)
+    import interp._
     Try {
       loadClassType.classSymbol match
         case Some(value) =>
@@ -91,6 +92,6 @@ end Load
 inline def loadMac[T]: String = ${ loadMacImpl[T] }
 def loadMacImpl[T: Type](using Quotes): Expr[String] = {
   val loaded = Load.Module[T]
-  println( loaded )
+  println(loaded)
   Expr(loaded.toString)
 }

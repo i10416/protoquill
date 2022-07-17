@@ -5,7 +5,7 @@ import scala.language.experimental.macros
 import java.io.Closeable
 import scala.compiletime.summonFrom
 import scala.util.Try
-import io.getquill.{ ReturnAction }
+import io.getquill.{ReturnAction}
 import io.getquill.generic.EncodingDsl
 import io.getquill.Quoted
 import io.getquill.QueryMeta
@@ -37,7 +37,7 @@ import io.getquill.Literal
 import scala.annotation.targetName
 import io.getquill.NamingStrategy
 import io.getquill.idiom.Idiom
-import io.getquill.context.ProtoContext
+import io.getquill.context.ProtoContextSecundus
 import io.getquill.context.AstSplicing
 import io.getquill.context.RowContext
 import io.getquill.metaprog.etc.ColumnsFlicer
@@ -51,9 +51,9 @@ trait ContextVerbPrepare[Dialect <: Idiom, Naming <: NamingStrategy]:
   type Session
   type Runner
 
-  type PrepareQueryResult //Usually: Session => Result[PrepareRow]
-  type PrepareActionResult //Usually: Session => Result[PrepareRow]
-  type PrepareBatchActionResult //Usually: Session => Result[List[PrepareRow]]
+  type PrepareQueryResult // Usually: Session => Result[PrepareRow]
+  type PrepareActionResult // Usually: Session => Result[PrepareRow]
+  type PrepareBatchActionResult // Usually: Session => Result[List[PrepareRow]]
 
   def prepareQuery(sql: String, prepare: Prepare = identityPrepare)(executionInfo: ExecutionInfo, dc: Runner): PrepareQueryResult
   def prepareSingle(sql: String, prepare: Prepare = identityPrepare)(executionInfo: ExecutionInfo, dc: Runner): PrepareQueryResult
@@ -71,7 +71,7 @@ trait ContextVerbPrepare[Dialect <: Idiom, Naming <: NamingStrategy]:
     val ca = make.op[Nothing, T, PrepareQueryResult] { arg =>
       self.prepareQuery(arg.sql, arg.prepare.head)(arg.executionInfo, _summonPrepareRunner())
     }
-    QueryExecution.apply(quoted, ca, None)
+    QueryExecution.apply(ca)(quoted, None)
   }
 
   @targetName("runPrepareQuerySingle")
@@ -82,7 +82,7 @@ trait ContextVerbPrepare[Dialect <: Idiom, Naming <: NamingStrategy]:
     val ca = make.op[E, Any, PrepareActionResult] { arg =>
       self.prepareAction(arg.sql, arg.prepare.head)(arg.executionInfo, _summonPrepareRunner())
     }
-    QueryExecution.apply(quoted, ca, None)
+    QueryExecution.apply(ca)(quoted, None)
   }
 
   @targetName("runPrepareBatchAction")
@@ -91,6 +91,6 @@ trait ContextVerbPrepare[Dialect <: Idiom, Naming <: NamingStrategy]:
       val group = BatchGroup(arg.sql, arg.prepare.toList)
       self.prepareBatchAction(List(group))(arg.executionInfo, _summonPrepareRunner())
     }
-    BatchQueryExecution.apply(quoted, ca)
+    BatchQueryExecution.apply(ca)(quoted)
   }
 end ContextVerbPrepare

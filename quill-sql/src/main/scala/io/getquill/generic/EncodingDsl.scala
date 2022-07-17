@@ -1,6 +1,5 @@
 package io.getquill.generic
 
-
 import scala.reflect.ClassTag
 import scala.quoted._
 import scala.deriving._
@@ -37,21 +36,29 @@ trait LowPriorityImplicits { self: EncodingDsl =>
       new AnyValEncoderContext[Encoder, Cls] {
         override def makeMappedEncoder[Base](mapped: MappedEncoding[Cls, Base], encoder: Encoder[Base]): Encoder[Cls] =
           self.mappedEncoder(mapped, encoder)
-      })
+      }
+    )
 
   implicit inline def anyValDecoder[Cls <: AnyVal]: Decoder[Cls] =
     MappedDecoderMaker[Decoder, Cls].apply(
       new AnyValDecoderContext[Decoder, Cls] {
         override def makeMappedDecoder[Base](mapped: MappedEncoding[Base, Cls], decoder: Decoder[Base]): Decoder[Cls] =
           self.mappedDecoder(mapped, decoder)
-    })
+      }
+    )
 }
 
-trait EncodingDsl extends LowPriorityImplicits { self => //extends LowPriorityImplicits
+// Generic null checker does not need to access the session but it needs to be typed on it for the context
+// to know which one to summon.
+trait GenericNullChecker[ResultRow, Session] {
+  def apply(columnIndex: Int, resultRow: ResultRow): Boolean
+}
+
+trait EncodingDsl extends LowPriorityImplicits { self => // extends LowPriorityImplicits
   type PrepareRow
   type ResultRow
   type Session
-  //type Index = Int
+  // type Index = Int
 
   type EncoderMethod[T] = (Int, T, PrepareRow, Session) => PrepareRow
   type DecoderMethod[T] = (Int, ResultRow, Session) => T
@@ -61,18 +68,20 @@ trait EncodingDsl extends LowPriorityImplicits { self => //extends LowPriorityIm
   // are defined only abstractly.
   type Encoder[T] <: GenericEncoder[T, PrepareRow, Session]
   type Decoder[T] <: GenericDecoder[ResultRow, Session, T, DecodingType.Specific]
+  type NullChecker <: GenericNullChecker[ResultRow, Session]
 
   // Initial Encoder/Decoder classes that Context implementations will subclass for their
   // respective Encoder[T]/Decoder[T] implementations e.g. JdbcEncoder[T](...) extends BaseEncoder[T]
   type BaseEncoder[T] = GenericEncoder[T, PrepareRow, Session]
   type BaseDecoder[T] = GenericDecoder[ResultRow, Session, T, DecodingType.Specific]
+  type BaseNullChecker = GenericNullChecker[ResultRow, Session]
 
   type ColumnResolver = GenericColumnResolver[ResultRow]
   type RowTyper[T] = GenericRowTyper[ResultRow, T]
 
   // For: Mapped := Foo(value: String), Base := String
   // Encoding follows: (MappedEncoding(Foo) => String) <=(contramap)= Encoder(Foo)
-  implicit def mappedEncoder  [Mapped, Base](implicit mapped: MappedEncoding[Mapped, Base], encoder: Encoder[Base]): Encoder[Mapped]
+  implicit def mappedEncoder[Mapped, Base](implicit mapped: MappedEncoding[Mapped, Base], encoder: Encoder[Base]): Encoder[Mapped]
 
   // For: Base := String, Mapped := Foo(value: String)
   // Decoding follows: (MappedEncoding(String) => Foo) =(map)=> Decoder(Foo)

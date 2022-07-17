@@ -4,7 +4,6 @@ import scala.language.implicitConversions
 
 import io.getquill.Quoted
 
-
 import io.getquill.ast._
 import io.getquill.QuotationLot
 import io.getquill.QuotationVase
@@ -25,6 +24,7 @@ import scala.reflect.classTag
 import io.getquill.context.mirror.Row
 import io.getquill.quote
 import io.getquill.query
+import io.getquill.context.mirror.MirrorSession
 
 class GenericDecoderTest extends Spec {
   import StaticEnumExample._
@@ -42,7 +42,7 @@ class GenericDecoderTest extends Spec {
           case "circle" => classTag[Shape.Circle]
 
     "test product type" in {
-      val s = io.getquill.MirrorSession.default
+      val s = MirrorSession.default
       inline def q = quote { query[Shape].filter(s => s.id == 18) }
       val result = ctx.run(q)
 
@@ -54,7 +54,7 @@ class GenericDecoderTest extends Spec {
   }
 
   "simple examples" - {
-    val s = io.getquill.MirrorSession.default
+    val s = MirrorSession.default
 
     "test tuple type" in {
       inline def q = quote { query[Person].map(p => (p.name, p.age)) }

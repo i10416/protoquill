@@ -3,7 +3,6 @@ package io.getquill
 import io.getquill.parser._
 import scala.quoted._
 import scala.annotation.StaticAnnotation
-import io.getquill.util.printer.AstPrinter
 import scala.deriving._
 import io.getquill.generic.GenericEncoder
 import io.getquill.quotation.NonQuotedException
@@ -12,7 +11,7 @@ import io.getquill.Query
 import io.getquill.EntityQuery
 
 object EntityQuery {
-  def apply[T] = new EntityQuery[T]() { }
+  def apply[T] = new EntityQuery[T]() {}
 }
 
 def querySchema[T](entity: String, columns: (T => (Any, String))*): EntityQuery[T] = NonQuotedException()
@@ -46,7 +45,7 @@ private[getquill] trait InfixValue {
 }
 
 implicit class InfixInterpolator(val sc: StringContext) {
-  //@compileTimeOnly(NonQuotedException.message)
+  // @compileTimeOnly(NonQuotedException.message)
   def infix(args: Any*): InfixValue = NonQuotedException()
 }
 
@@ -74,7 +73,7 @@ case class LazyPlanter[T, PrepareRow, Session](value: T, uid: String) extends Pl
 }
 
 // Equivalent to CaseClassValueLift
-case class EagerEntitiesPlanter[T, PrepareRow, Session](value: Iterable[T], uid: String) extends Planter[Query[T], PrepareRow, Session] {
+case class EagerEntitiesPlanter[T, PrepareRow, Session](value: Iterable[T], uid: String, fieldGetters: List[InjectableEagerPlanter[?, PrepareRow, Session]], fieldClass: ast.CaseClass) extends Planter[Query[T], PrepareRow, Session] {
   def unquote: Query[T] =
     throw new RuntimeException("Unquotation can only be done from a quoted block.")
 }

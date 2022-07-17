@@ -5,7 +5,7 @@ import scala.language.experimental.macros
 import java.io.Closeable
 import scala.compiletime.summonFrom
 import scala.util.Try
-import io.getquill.{ ReturnAction }
+import io.getquill.{ReturnAction}
 import io.getquill.generic.EncodingDsl
 import io.getquill.Quoted
 import io.getquill.QueryMeta
@@ -37,7 +37,7 @@ import io.getquill.Literal
 import scala.annotation.targetName
 import io.getquill.NamingStrategy
 import io.getquill.idiom.Idiom
-import io.getquill.context.ProtoContext
+import io.getquill.context.ProtoContextSecundus
 import io.getquill.context.AstSplicing
 import io.getquill.context.RowContext
 import io.getquill.metaprog.etc.ColumnsFlicer
@@ -46,7 +46,7 @@ import io.getquill.OuterSelectWrap
 import scala.annotation.tailrec
 
 trait ContextVerbTranslate[Dialect <: Idiom, Naming <: NamingStrategy]
-  extends ContextTranslateMacro[Dialect, Naming]:
+    extends ContextTranslateMacro[Dialect, Naming]:
   self: Context[Dialect, Naming] =>
   override type TranslateResult[T] = T
   override def wrap[T](t: => T): T = t
@@ -54,7 +54,7 @@ trait ContextVerbTranslate[Dialect <: Idiom, Naming <: NamingStrategy]
   override def seq[A](list: List[A]): List[A] = list
 
 trait ContextTranslateMacro[Dialect <: Idiom, Naming <: NamingStrategy]
-extends ContextTranslateProto[Dialect, Naming]:
+    extends ContextTranslateProto[Dialect, Naming]:
   self: Context[Dialect, Naming] =>
 
   type TranslateResult[T]
@@ -67,7 +67,7 @@ extends ContextTranslateProto[Dialect, Naming]:
   def inline$context$i1(x$0: Context[Dialect, Naming] & ContextTranslateMacro[Dialect, Naming]): ContextTranslateMacro.this.Runner in trait ContextTranslateMacro
   have the same type after erasure.
   (Note that RunnerBehavior however can be the same)
-  */
+   */
   type TranslateRunner
   type RunnerBehavior <: RunnerSummoningBehavior
   def translateContext: TranslateRunner
@@ -86,7 +86,7 @@ extends ContextTranslateProto[Dialect, Naming]:
       val simpleExt = arg.extractor.requireSimple()
       self.translateQueryEndpoint(arg.sql, arg.prepare.head, simpleExt.extract, prettyPrint)(arg.executionInfo, _summonTranslateRunner())
     }
-    QueryExecution.apply(quoted, ca, None)
+    QueryExecution.apply(ca)(quoted, None)
   }
 
   @targetName("translateQuerySingle")
@@ -97,7 +97,7 @@ extends ContextTranslateProto[Dialect, Naming]:
       val simpleExt = arg.extractor.requireSimple()
       self.translateQueryEndpoint(arg.sql, arg.prepare.head, simpleExt.extract, prettyPrint)(arg.executionInfo, _summonTranslateRunner())
     }
-    QueryExecution.apply(QuerySingleAsQuery(quoted), ca, None)
+    QueryExecution.apply(ca)(QuerySingleAsQuery(quoted), None)
   }
 
   @targetName("translateAction")
@@ -107,7 +107,7 @@ extends ContextTranslateProto[Dialect, Naming]:
     val ca = make.op[E, Any, TranslateResult[String]] { arg =>
       self.translateQueryEndpoint(arg.sql, arg.prepare.head, prettyPrint = prettyPrint)(arg.executionInfo, _summonTranslateRunner())
     }
-    QueryExecution.apply(quoted, ca, None)
+    QueryExecution.apply(ca)(quoted, None)
   }
 
   @targetName("translateActionReturning")
@@ -118,7 +118,7 @@ extends ContextTranslateProto[Dialect, Naming]:
       val returningExt = arg.extractor.requireReturning()
       self.translateQueryEndpoint(arg.sql, arg.prepare.head, returningExt.extract, prettyPrint)(arg.executionInfo, _summonTranslateRunner())
     }
-    QueryExecution.apply(quoted, ca, None)
+    QueryExecution.apply(ca)(quoted, None)
   }
 
   @targetName("translateBatchAction")
@@ -130,7 +130,7 @@ extends ContextTranslateProto[Dialect, Naming]:
       val group = BatchGroup(arg.sql, arg.prepare.toList)
       self.translateBatchQueryEndpoint(List(group), prettyPrint)(arg.executionInfo, _summonTranslateRunner())
     }
-    BatchQueryExecution.apply(quoted, ca)
+    BatchQueryExecution.apply(ca)(quoted)
   }
 
   @targetName("translateBatchActionReturning")
@@ -143,7 +143,7 @@ extends ContextTranslateProto[Dialect, Naming]:
       val group = BatchGroupReturning(arg.sql, returningExt.returningBehavior, arg.prepare.toList)
       self.translateBatchQueryReturningEndpoint(List(group), prettyPrint)(arg.executionInfo, _summonTranslateRunner())
     }
-    BatchQueryExecution.apply(quoted, ca)
+    BatchQueryExecution.apply(ca)(quoted)
   }
 end ContextTranslateMacro
 

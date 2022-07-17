@@ -4,7 +4,6 @@ import scala.language.implicitConversions
 
 import io.getquill.Quoted
 
-
 import io.getquill.ast._
 import io.getquill.QuotationLot
 import io.getquill.QuotationVase
@@ -45,20 +44,20 @@ class GenericDecoderCoproductTest extends Spec {
 
   given deter: GenericRowTyper[MyResult, Shape] with {
     def apply(rr: MyResult): ClassTag[_] = {
-      val typeValue = rr.get("type")
+      val typeValue = rr.get("tpe")
       typeValue match {
         case "circle" => classTag[Shape.Circle]
         case "square" => classTag[Shape.Square]
-        case _ => throw new IllegalArgumentException(s"Cannot resolve type: ${typeValue})")
+        case _        => throw new IllegalArgumentException(s"Cannot resolve type: ${typeValue})")
       }
     }
   }
 
   "test coproduct type" in {
     val s = MySession
-    val r1 = MyResult("type" -> "square", "radius" -> 890, "width" -> 123, "height" -> 456)
-    autoDecoder[Shape](1, r1, s) mustEqual Shape.Square(123, 456)
-    val r2 = MyResult("type" -> "circle", "radius" -> 890, "width" -> 123, "height" -> 456)
-    autoDecoder[Shape](1, r2, s) mustEqual Shape.Circle(890)
+    val r1 = MyResult("tpe" -> "square", "radius" -> 890, "width" -> 123, "height" -> 456)
+    autoDecoder[Shape](0, r1, s) mustEqual Shape.Square(123, 456)
+    val r2 = MyResult("tpe" -> "circle", "radius" -> 890, "width" -> 123, "height" -> 456)
+    autoDecoder[Shape](0, r2, s) mustEqual Shape.Circle(890)
   }
 }

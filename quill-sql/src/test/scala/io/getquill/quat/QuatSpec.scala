@@ -1,12 +1,11 @@
 package io.getquill.quat
 
-
 import io.getquill.quotation.QuatException
 import org.scalatest.freespec.AnyFreeSpec
 import org.scalatest.matchers.must.Matchers._
 import org.scalatest._
 import io.getquill.quat._
-import io.getquill.QueryDsl._
+
 import io.getquill._
 
 object TestEnum:
@@ -17,7 +16,6 @@ object TestEnum:
   enum ProductEnum:
     case Foo(stuff: String)
     case Bar(stuff: String, otherStuff: String)
-
 
 class QuatSpec extends AnyFreeSpec {
 
@@ -138,7 +136,7 @@ class QuatSpec extends AnyFreeSpec {
     import BooQuatSerializer._
     val example = Quat.Product("bv" -> Quat.BooleanValue, "be" -> Quat.BooleanExpression, "v" -> Quat.Value, "p" -> Quat.Product("vv" -> Quat.Value))
     "with boo" in {
-      Quat.fromSerializedJS(serialize(example)) mustEqual example
+      Quat.fromSerialized(serialize(example)) mustEqual example
     }
     // kryo tests are covered by standard JVM quill specs
   }
@@ -183,7 +181,7 @@ class QuatSpec extends AnyFreeSpec {
       }
       func.ast.quat mustEqual Quat.Generic
     }
-    */
+     */
     "case class" in {
       case class MyPerson(name: String, isRussian: Boolean)
       def func = quote {
@@ -204,7 +202,7 @@ class QuatSpec extends AnyFreeSpec {
         (q: Query[LikePerson]) => q.filter(p => p.name == "Joe")
       }
       // TODO What about abstract classes? What does Flags.Abstract do?
-      func.ast.quat mustEqual Quat.Generic //helloooo
+      func.ast.quat mustEqual Quat.Generic // helloooo
     }
     "interface with boundary" in {
       trait LikePerson { def name: String; def isRussian: Boolean }

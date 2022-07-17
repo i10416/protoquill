@@ -6,7 +6,7 @@ import scala.quoted._
 import scala.annotation.StaticAnnotation
 import scala.deriving._
 import io.getquill.Embedable
-import io.getquill.Dsl
+
 import scala.reflect.ClassTag
 import io.getquill.norm.capture.AvoidAliasConflict
 import io.getquill.metaprog.QuotationLotExpr
@@ -20,6 +20,7 @@ import io.getquill.metaprog.Extractors._
 import io.getquill.ast
 import io.getquill.parser.engine._
 import io.getquill.quat.QuatMakingBase
+import io.getquill.norm.TranspileConfig
 
 object ParserHelpers:
 
@@ -45,13 +46,13 @@ object ParserHelpers:
         def unapply(expr: Expr[_])(using Quotes) =
           UntypeExpr(expr) match
             case Lambda1(ident, identTpe, ArrowFunction(prop, value)) => Some((ident, identTpe, prop, value))
-            case _ => None
+            case _                                                    => None
 
       object TwoComponents:
         def unapply(expr: Expr[_])(using Quotes) =
           UntypeExpr(expr) match
             case Lambda2(ident1, identTpe1, ident2, identTpe2, ArrowFunction(prop, value)) => Some((ident1, identTpe1, ident2, identTpe2, prop, value))
-            case _ => None
+            case _                                                                         => None
 
       object CheckTypes:
         def checkPropAndValue(parent: Expr[Any], prop: Expr[Any], value: Expr[Any])(using Quotes) =
@@ -62,24 +63,30 @@ object ParserHelpers:
           // then check if one can fit into another. If it can the assignment is valid
           if (isNumericPrimitive(propTpe) && isNumericPrimitive(valueTpe)) {
             if (!(numericPrimitiveFitsInto(propTpe, valueTpe))) {
-              report.throwError(s"The primitive numeric value ${Format.TypeRepr(valueTpe)} in ${Format.Expr(value)} is to large to fit into the ${Format.TypeRepr(propTpe)} in ${Format.Expr(prop)}.", parent)
+              report.throwError(
+                s"The primitive numeric value ${Format.TypeRepr(valueTpe)} in ${Format.Expr(value)} is to large to fit into the ${Format.TypeRepr(propTpe)} in ${Format.Expr(prop)}.",
+                parent
+              )
             }
           }
           // Otherwise check if the property is a subtype of the value that is being assigned to it
           else if (!(valueTpe <:< propTpe)) {
-            report.throwError(s"The ${Format.TypeRepr(valueTpe)} value ${Format.Expr(value)} cannot be assigned to the ${Format.TypeRepr(propTpe)} property ${Format.Expr(prop)} because they are not the same type (or a subtype).", parent)
+            report.throwError(
+              s"The ${Format.TypeRepr(valueTpe)} value ${Format.Expr(value)} cannot be assigned to the ${Format.TypeRepr(propTpe)} property ${Format.Expr(prop)} because they are not the same type (or a subtype).",
+              parent
+            )
           }
         def apply(expr: Expr[_])(using Quotes) =
           import quotes.reflect._
           expr match
-            case Components(_, _, prop, value) => checkPropAndValue(expr, prop, value)
+            case Components(_, _, prop, value)          => checkPropAndValue(expr, prop, value)
             case TwoComponents(_, _, _, _, prop, value) => checkPropAndValue(expr, prop, value)
             case other =>
               report.throwError(s"The assignment statement ${Format.Expr(expr)} is invalid.")
       end CheckTypes
 
       def OrFail(expr: Expr[_])(using Quotes, History) =
-        unapply(expr).getOrElse { ParserError(expr, classOf[Assignment]) }
+        unapply(expr).getOrElse { failParse(expr, classOf[Assignment]) }
 
       def unapply(expr: Expr[_])(using Quotes, History): Option[Assignment] =
         UntypeExpr(expr) match
@@ -89,19 +96,18 @@ object ParserHelpers:
 
       object Double:
         def OrFail(expr: Expr[_])(using Quotes, History) =
-          unapply(expr).getOrElse { ParserError(expr, classOf[AssignmentDual]) }
+          unapply(expr).getOrElse { failParse(expr, classOf[AssignmentDual]) }
         def unapply(expr: Expr[_])(using Quotes, History): Option[AssignmentDual] =
           UntypeExpr(expr) match
-             case TwoComponents(ident1, identTpe1, ident2, identTpe2, prop, value) =>
-                val i1 = cleanIdent(ident1, identTpe1)
-                val i2 = cleanIdent(ident2, identTpe2)
-                val valueAst = Transform(rootParse(value)) {
-                  case `i1` => OnConflict.Existing(i1)
-                  case `i2` => OnConflict.Excluded(i2)
-                }
-                Some(AssignmentDual(i1, i2, rootParse(prop), valueAst))
-             case _ => None
-
+            case TwoComponents(ident1, identTpe1, ident2, identTpe2, prop, value) =>
+              val i1 = cleanIdent(ident1, identTpe1)
+              val i2 = cleanIdent(ident2, identTpe2)
+              val valueAst = Transform(rootParse(value)) {
+                case `i1` => OnConflict.Existing(i1)
+                case `i2` => OnConflict.Excluded(i2)
+              }
+              Some(AssignmentDual(i1, i2, rootParse(prop), valueAst))
+            case _ => None
 
     end AssignmentTerm
   end Assignments
@@ -144,13 +150,12 @@ object ParserHelpers:
             if (value.tpe <:< TypeRepr.of[Embedded]) {
               Some(Property.Opinionated(rootParse(prefix), member, Renameable.ByStrategy, Visibility.Hidden))
             } else {
-              //println(s"========= Parsing Property ${prefix.show}.${member} =========")
+              // println(s"========= Parsing Property ${prefix.show}.${member} =========")
               Some(Property(rootParse(prefix), member))
             }
           case _ => None
     end AnyProperty
   }
-
 
   trait PropertyAliases(using Quotes) {
     import quotes.reflect.{Ident => TIdent, ValDef => TValDef, _}
@@ -163,26 +168,26 @@ object ParserHelpers:
 
     object PropertyAliasExpr {
       def OrFail[T: Type](expr: Expr[Any]) = expr match
-          case PropertyAliasExpr(propAlias) => propAlias
-          case _ => ParserError(expr, classOf[PropertyAlias])
+        case PropertyAliasExpr(propAlias) => propAlias
+        case _                            => failParse(expr, classOf[PropertyAlias])
 
-      def unapply[T: Type](expr: Expr[Any]): Option[PropertyAlias] = expr match
-        case Lambda1(_, _, '{ ($prop: Any).->[v](${ConstExpr(alias: String)}) } ) =>
-          def path(tree: Expr[_]): List[String] =
-            tree match
-              case a`.`b =>
-                path(a) :+ b
-              case '{ (${a`.`b}: Option[t]).map[r](${Lambda1(arg, tpe, body)}) } =>
-                path(a) ++ (b :: path(body))
-              case _ =>
-                Nil
-          end path
-          Some(PropertyAlias(path(prop), alias))
-        case _ =>
-          None
+      def unapply[T: Type](expr: Expr[Any]): Option[PropertyAlias] =
+        expr match
+          case Lambda1(_, _, '{ ($prop: Any).->[v](${ ConstExpr(alias: String) }) }) =>
+            def path(tree: Expr[_]): List[String] =
+              tree match
+                case a `.` b =>
+                  path(a) :+ b
+                case '{ (${ a `.` b }: Option[t]).map[r](${ Lambda1(arg, tpe, body) }) } =>
+                  path(a) ++ (b :: path(body))
+                case _ =>
+                  Nil
+            end path
+            Some(PropertyAlias(path(prop), alias))
+          case _ =>
+            None
     }
   }
-
 
   /**
    * Helpers for different behaviors Quill supports of object equality. This is non-trivial since Quill has to make sense
@@ -212,11 +217,11 @@ object ParserHelpers:
       val comparison = BinaryOperation(a, equalityBehavior.operator, b)
       (leftIsOptional, rightIsOptional, equalityBehavior) match
         // == two optional things. Either they are both null or they are both defined and the same
-        case (true, true, Equal)    => (OptionIsEmpty(a) +&&+ OptionIsEmpty(b)) +||+ (OptionIsDefined(a) +&&+ OptionIsDefined(b) +&&+ comparison)
+        case (true, true, Equal) => (OptionIsEmpty(a) +&&+ OptionIsEmpty(b)) +||+ (OptionIsDefined(a) +&&+ OptionIsDefined(b) +&&+ comparison)
         // != two optional things. Either one is null and the other isn't. Or they are both defined and have different values
         case (true, true, NotEqual) => (OptionIsDefined(a) +&&+ OptionIsEmpty(b)) +||+ (OptionIsEmpty(a) +&&+ OptionIsDefined(b)) +||+ comparison
         // No additional logic when both sides are defined
-        case (false, false, _)      => comparison
+        case (false, false, _) => comparison
         // Comparing an optional object with a non-optional object is not allowed when using scala-idiomatic optional behavior
         case (lop, rop, _) =>
           val lopString = (if (lop) "Optional" else "Non-Optional") + s" ${left}}"
@@ -241,9 +246,11 @@ object ParserHelpers:
         case (false, false) => comparison
 
     trait OptionCheckBehavior
-    /** Allow T == Option[T] comparison **/
+
+    /** Allow T == Option[T] comparison * */
     case object AllowInnerCompare extends OptionCheckBehavior
-    /** Forbid T == Option[T] comparison **/
+
+    /** Forbid T == Option[T] comparison * */
     case object ForbidInnerCompare extends OptionCheckBehavior
 
     /**
@@ -275,7 +282,10 @@ object ParserHelpers:
           (leftIsOptional, rightIsOptional)
         case _ =>
           if (leftIsOptional || rightIsOptional)
-            report.throwError(s"${Format.TypeReprW(leftType)} == ${Format.TypeReprW(rightType)} is not allowed since ${Format.TypeReprW(leftInner)}, ${Format.TypeReprW(rightInner)} are different types.", lhs.asExpr)
+            report.throwError(
+              s"${Format.TypeReprW(leftType)} == ${Format.TypeReprW(rightType)} is not allowed since ${Format.TypeReprW(leftInner)}, ${Format.TypeReprW(rightInner)} are different types.",
+              lhs.asExpr
+            )
           else
             report.throwError(s"${Format.TypeReprW(leftType)} == ${Format.TypeReprW(rightType)} is not allowed since they are different types.", lhs.asExpr)
 
@@ -315,11 +325,10 @@ object ParserHelpers:
 
     // don't change to ValDef or might override the real valdef in qctx.reflect
     object ValDefTerm {
-      def unapply(using Quotes, History)(tree: quotes.reflect.Tree): Option[Ast] =
+      def unapply(using Quotes, History, TranspileConfig)(tree: quotes.reflect.Tree): Option[Ast] =
         import quotes.reflect.{Ident => TIdent, ValDef => TValDef, _}
         tree match {
           case TValDef(name, tpe, Some(t @ PatMatchTerm.SimpleClause(ast))) =>
-            println(s"====== Parsing Val Def ${name} = ${t.show}")
             Some(Val(AIdent(name, InferQuat.ofType(tpe.tpe)), ast))
 
           // In case a user does a 'def' instead of a 'val' with no paras and no types then treat it as a val def
@@ -331,11 +340,11 @@ object ParserHelpers:
           // query[Person].map(p => (p.name, p.age)).filter(x$1 => { val name=x$1._1; val age=x$1._2; name == "Joe" })
           // and you need to resolve the val defs thare are created automatically
           case DefDef(name, paramss, tpe, rhsOpt) if (paramss.length == 0) =>
-            //println(s"====== Parsing Def Def ${name} = ${rhsOpt.map(_.show)}")
+            // println(s"====== Parsing Def Def ${name} = ${rhsOpt.map(_.show)}")
             val body =
               rhsOpt match {
                 // TODO Better site-description in error
-                case None => report.throwError(s"Cannot parse 'val' clause with no '= rhs' (i.e. equals and right hand side) of ${Printer.TreeStructure.show(tree)}")
+                case None      => report.throwError(s"Cannot parse 'val' clause with no '= rhs' (i.e. equals and right hand side) of ${Printer.TreeStructure.show(tree)}")
                 case Some(rhs) => rhs
               }
             val bodyAst = rootParse(body.asExpr)
@@ -345,7 +354,7 @@ object ParserHelpers:
             val body =
               rhsOpt match {
                 // TODO Better site-description in error
-                case None => report.throwError(s"Cannot parse 'val' clause with no '= rhs' (i.e. equals and right hand side) of ${Printer.TreeStructure.show(tree)}")
+                case None      => report.throwError(s"Cannot parse 'val' clause with no '= rhs' (i.e. equals and right hand side) of ${Printer.TreeStructure.show(tree)}")
                 case Some(rhs) => rhs
               }
             val bodyAst = rootParse(body.asExpr)
@@ -367,21 +376,24 @@ object ParserHelpers:
 
     object PatMatchTerm:
       object SimpleClause:
-        def unapply(using Quotes, History)(term: quotes.reflect.Term): Option[Ast] =
+        def unapply(using Quotes, History, TranspileConfig)(term: quotes.reflect.Term): Option[Ast] =
           PatMatchTerm.unapply(term) match
             case Some(PatMatch.SimpleClause(ast)) => Some(ast)
-            case _ => None
+            case _                                => None
 
-      def unapply(using Quotes, History)(root: quotes.reflect.Term): Option[PatMatch] =
+      def unapply(using Quotes, History, TranspileConfig)(root: quotes.reflect.Term): Option[PatMatch] =
         import quotes.reflect.{Ident => TIdent, ValDef => TValDef, _}
         root match
           case Match(expr, List(CaseDef(fields, None, body))) =>
             Some(PatMatch.SimpleClause(betaReduceTupleFields(expr, fields)(body)))
 
-          case Match(expr,List(
-                CaseDef(fields, None, Literal(BooleanConstant(true))),
-                CaseDef(TIdent("_"), None, Literal(BooleanConstant(false)))
-              )) =>
+          case Match(
+                expr,
+                List(
+                  CaseDef(fields, None, Literal(BooleanConstant(true))),
+                  CaseDef(TIdent("_"), None, Literal(BooleanConstant(false)))
+                )
+              ) =>
             Some(PatMatch.AutoAddedTrivialClause)
 
           case m @ Match(expr, caseDefs) =>
@@ -406,7 +418,7 @@ object ParserHelpers:
      * becomes reduced to:
      * ptups.map { x => fun(x.name, x.age) }
      */
-    protected def betaReduceTupleFields(using Quotes, History)(tupleTree: quotes.reflect.Term, fieldsTree: quotes.reflect.Tree, messageExpr: Option[quotes.reflect.Term] = None)(bodyTree: quotes.reflect.Term): Ast = {
+    protected def betaReduceTupleFields(using Quotes, History, TranspileConfig)(tupleTree: quotes.reflect.Term, fieldsTree: quotes.reflect.Tree, messageExpr: Option[quotes.reflect.Term] = None)(bodyTree: quotes.reflect.Term): Ast = {
       import quotes.reflect.{Ident => TIdent, ValDef => TValDef, _}
       // TODO Need to verify that this is actually a tuple?
       val tuple = rootParse(tupleTree.asExpr)
@@ -419,7 +431,7 @@ object ParserHelpers:
       Get a list of all the paths of all the identifiers inside the tuple. E.g:
       foo match { case ((a,b),c) => bar } would yield something like:
       List((a,List(_1, _1)), (b,List(_1, _2)), (c,List(_2)))
-      */
+       */
       def tupleBindsPath(field: Tree, path: List[String] = List()): List[(AIdent, List[String])] = {
         UntypeTree(field) match {
           case Bind(name, TIdent(_)) => List(AIdent(name) -> path)
@@ -432,9 +444,10 @@ object ParserHelpers:
           case TIdent("_") =>
             List()
           case other =>
-            val addition = messageExpr match
-              case Some(expr) => s" in the expression: ${Format.Tree(expr)}"
-              case None => ""
+            val addition =
+              messageExpr match
+                case Some(expr) => s" in the expression: ${Format.Tree(expr)}"
+                case None       => ""
             report.throwError(s"Invalid Pattern Matching Term: ${Format.Tree(other)}${addition}.\n" +
               s"Quill Query Pattern matches must be correctly matching tuples.\n" +
               s"For example for query[Person].map(p => (p.name, p.age)) you can then do:\n" +
@@ -446,7 +459,7 @@ object ParserHelpers:
       from the original tuple we found. For example, if we had: foo match { case ((a,b),c) => bar }
       we get something like List((a,List(_1, _1)), (b,List(_1, _2)), (c,List(_2))). If 'foo'
       is ((f,b),z) then we want to get: List(((f,b),z)._1._1, ((f,b),z)._1._2, ((f,b),z)._2)
-      */
+       */
       def propertyAt(path: List[String]) =
         path.foldLeft(tuple) {
           case (tup, elem) => Property(tup, elem)
@@ -455,7 +468,7 @@ object ParserHelpers:
       val fieldPaths = tupleBindsPath(fieldsTree)
       val reductionTuples = fieldPaths.map((id, path) => (id, propertyAt(path)))
 
-      val interp = new Interpolator(TraceType.Standard, 1)
+      val interp = new Interpolator(TraceType.Standard, summon[TranspileConfig].traceConfig, 1)
       import interp._
 
       trace"Pat Match Parsing: ${body}".andLog()
@@ -467,31 +480,38 @@ object ParserHelpers:
     }
   end PatternMatchingValues
 
-
   object ImplicitClassExtensionPattern:
     private def isImplicitClassMaker(using Quotes)(term: quotes.reflect.Term): Boolean =
       import quotes.reflect._
-      term.tpe.termSymbol.flags.is(Flags.Final | Flags.Implicit | Flags.Method | Flags.Synthetic)
+      term.tpe.typeSymbol.flags.is(Flags.Implicit) && term.tpe.classSymbol.isDefined
+
+    private def isImplicitClassMethod(using Quotes)(term: quotes.reflect.Term): Boolean =
+      import quotes.reflect._
+      term.tpe.termSymbol.flags.is(Flags.Final | Flags.Implicit | Flags.Method)
+
     def unapply(expr: Expr[_])(using Quotes) =
       import quotes.reflect._
       expr match
-        case expr @ Unseal(Select(Apply(cc @ Ident(ccid), List(constructorArg)), methodName)) if (isImplicitClassMaker(cc)) =>
-          Some((ccid, constructorArg, methodName))
+        // Putting a type-apply in all possible places to detect all possible variations of the
+        // implicit class pattern that we need to warn about for Scala 3 (since it no-longer works).
+        case expr @ Unseal(UntypeApply(cc @ Apply(UntypeApply(ccid), List(constructorArg)))) if (isImplicitClassMaker(cc) && isImplicitClassMethod(ccid)) =>
+          Some((ccid.tpe, constructorArg))
         case _ =>
           None
-    def errorMessage(using Quotes)(expr: Expr[_], ccid: String, constructorArg: quotes.reflect.Term, methodName: String) =
-      s"""|Error in the expression: `${Format.Expr(expr)}` (a.k.a. `${Format.Term(constructorArg)}.${methodName}`)
-          |Attempted to call the method `${methodName}` on the expression `${Format.Term(constructorArg)}`
-          |via the implicit extensions class `${ccid}`.
-          |Implicit extensions in Quotations are not supported in ProtoQuill. Instead use inline
+    def errorMessage(using Quotes)(expr: Expr[_], ccid: quotes.reflect.TypeRepr, constructorArg: quotes.reflect.Term) =
+      s"""|Error in the expression:
+          |  ${Format.Expr(expr)}
+          |
+          |Attempted to use an implicit extensions class `${ccid}`.
+          |Implicit extensions in Quotations are not supported in ProtoQuill, they can
+          |only be used with dynamic queries. Instead of implicit-classes, use inline
           |extension methods. For example, instead of doing this:
           |implicit class ${ccid}(input: ${Format.TypeRepr(constructorArg.tpe.widen)}):
-          |  def ${methodName} = [method content]
+          |  def myMethod = [method content]
           |
           |Do this:
           |extension (inline input: ${Format.TypeRepr(constructorArg.tpe.widen)})
-          |  inline def ${methodName} = [method content]
+          |  inline def myMethod = [method content]
           |"""".stripMargin
-
 
 end ParserHelpers

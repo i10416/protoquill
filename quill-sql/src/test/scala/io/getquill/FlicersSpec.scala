@@ -4,6 +4,7 @@ import io.getquill.context.mirror.Row
 import io.getquill.util.StringOps._
 import io.getquill.context.ExecutionType
 import io.getquill.util.debug.PrintMac
+import io.getquill.context.mirror.MirrorSession
 
 class FlicersSpec extends Spec {
   val ctx = new MirrorContext(MirrorSqlDialect, Literal)
@@ -19,7 +20,7 @@ class FlicersSpec extends Spec {
   case class NameOpt(first: Option[String], last: String)
   case class PersonNestOptField(name: Option[NameOpt], age: Int)
 
-  val s = io.getquill.MirrorSession.default
+  val s = MirrorSession.default
 
   "MapFlicer should" - {
     "Splice on a flat object" in {
@@ -94,7 +95,7 @@ class FlicersSpec extends Spec {
       }
       val r = ctx.run(q)
       r.extractor(Row("firstName" -> "Joe", "lastName" -> "Bloggs", "age" -> 123), s) mustEqual
-        PersonFlat("Joe","Bloggs",123)
+        PersonFlat("Joe", "Bloggs", 123)
     }
 
     "Filter Nested columns" in {
@@ -112,7 +113,7 @@ class FlicersSpec extends Spec {
            |""".stripMargin.collapseSpace
 
       r.extractor(Row("first" -> "Joe", "last" -> "Bloggs", "age" -> 123), s) mustEqual
-        PersonNest(Name("Joe","Bloggs"),123)
+        PersonNest(Name("Joe", "Bloggs"), 123)
     }
   }
 }

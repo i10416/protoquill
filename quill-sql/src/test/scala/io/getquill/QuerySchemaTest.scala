@@ -2,18 +2,15 @@ package io.getquill
 
 import scala.language.implicitConversions
 
-import io.getquill.Dsl
 import io.getquill.Quoted
-
 
 import io.getquill.ast._
 import io.getquill.QuotationLot
 import io.getquill.QuotationVase
 import io.getquill.context.ExecutionType
 import org.scalatest._
-import io.getquill.util.printer
 
-class QuerySchemaTest extends Spec with Inside { //hello
+class QuerySchemaTest extends Spec with Inside { // hello
 
   case class TestEntity(s: String, i: Int, l: Long, o: Option[Int])
   case class TestEntity2(s: String, i: Int, l: Long, o: Option[Int])

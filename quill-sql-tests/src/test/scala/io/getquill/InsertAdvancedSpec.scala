@@ -18,7 +18,23 @@ class InsertAdvancedSpec extends Spec with Inside {
 
   case class Person(name: String, age: Int)
 
-  // TODO, next up we need to have this: query[Person].insertValue(lift(Person("Joe", 123))), that's a case class lift
+  "updateValue with various dynamic structures" - {
+    val joe = Person("Joe", 123)
+    val v = quote { query[Person] }
+    "dynamic EntityQuery" in {
+      ctx.run(v.filter(u => u.age == 55).updateValue(lift(joe))).triple mustEqual
+        ("UPDATE Person AS u SET name = ?, age = ? WHERE u.age = 55",List("Joe", 123),Dynamic)
+    }
+    "dynamic EntityQuery with lift" in {
+      ctx.run(v.filter(u => u.age == lift(55)).updateValue(lift(joe))).triple mustEqual
+        ("UPDATE Person AS u SET name = ?, age = ? WHERE u.age = ?",List("Joe", 123, 55),Dynamic)
+    }
+    "dynamic EntityQuery multiple indirection" in {
+      val v1 = quote { v.filter(u => u.age == 55) }
+      ctx.run(v1.updateValue(lift(joe))).triple mustEqual
+        ("UPDATE Person AS u SET name = ?, age = ? WHERE u.age = 55",List("Joe", 123),Dynamic)
+    }
+  }
 
   "insert for simple entity should work for" - {
     // Insert(Entity("Person", List()), List(Assignment(Id("x1"), Property(Id("x1"), "name"), "Joe"), Assignment(Id("x2"), Property(Id("x2"), "age"), 123)))
@@ -129,8 +145,8 @@ class InsertAdvancedSpec extends Spec with Inside {
         inline def a = quote { query[Person].filter(e => e.name == "JoeJoe").update(_.name -> "Joe", _.age -> 123) }
         inline given personSchema: UpdateMeta[Person] = updateMeta[Person](_.age)
         inline given sm: SchemaMeta[Person] = schemaMeta("tblPerson", _.name -> "colName", _.age -> "colAge")
-        ctx.run(q).triple mustEqual ("UPDATE tblPerson SET colName = ? WHERE colName = 'JoeJoe'", List("Joe"), Static)
-        ctx.run(a).triple mustEqual ("UPDATE tblPerson SET colName = 'Joe', colAge = 123 WHERE colName = 'JoeJoe'", List(), Static)
+        ctx.run(q).triple mustEqual ("UPDATE tblPerson AS e SET colName = ? WHERE e.colName = 'JoeJoe'", List("Joe"), Static)
+        ctx.run(a).triple mustEqual ("UPDATE tblPerson AS e SET colName = 'Joe', colAge = 123 WHERE e.colName = 'JoeJoe'", List(), Static)
       }
 
       "simple with schemaMeta with extra columns and update meta fully lifted with filter lift" in {
@@ -138,8 +154,8 @@ class InsertAdvancedSpec extends Spec with Inside {
         inline def a = quote { query[Person].filter(e => e.name == lift("JoeJoe")).update(_.name -> "Joe", _.age -> 123) }
         inline given personSchema: UpdateMeta[Person] = updateMeta[Person](_.age)
         inline given sm: SchemaMeta[Person] = schemaMeta("tblPerson", _.name -> "colName", _.age -> "colAge")
-        ctx.run(q).triple mustEqual ("UPDATE tblPerson SET colName = ? WHERE colName = ?", List("Joe", "JoeJoe"), Static)
-        ctx.run(a).triple mustEqual ("UPDATE tblPerson SET colName = 'Joe', colAge = 123 WHERE colName = ?", List("JoeJoe"), Static)
+        ctx.run(q).triple mustEqual ("UPDATE tblPerson AS e SET colName = ? WHERE e.colName = ?", List("Joe", "JoeJoe"), Static)
+        ctx.run(a).triple mustEqual ("UPDATE tblPerson AS e SET colName = 'Joe', colAge = 123 WHERE e.colName = ?", List("JoeJoe"), Static)
       }
 
       "simple with schemaMeta with extra columns and update meta filter lift - included column" in {
@@ -147,8 +163,8 @@ class InsertAdvancedSpec extends Spec with Inside {
         inline def a = quote { query[Person].filter(e => e.name == lift("JoeJoe")).update(_.name -> lift("Joe"), _.age -> 123) }
         inline given personSchema: UpdateMeta[Person] = updateMeta[Person](_.age)
         inline given sm: SchemaMeta[Person] = schemaMeta("tblPerson", _.name -> "colName", _.age -> "colAge")
-        ctx.run(q).triple mustEqual ("UPDATE tblPerson SET colName = ? WHERE colName = ?", List("Joe", "JoeJoe"), Static)
-        ctx.run(a).triple mustEqual ("UPDATE tblPerson SET colName = ?, colAge = 123 WHERE colName = ?", List("Joe", "JoeJoe"), Static)
+        ctx.run(q).triple mustEqual ("UPDATE tblPerson AS e SET colName = ? WHERE e.colName = ?", List("Joe", "JoeJoe"), Static)
+        ctx.run(a).triple mustEqual ("UPDATE tblPerson AS e SET colName = ?, colAge = 123 WHERE e.colName = ?", List("Joe", "JoeJoe"), Static)
       }
 
       "simple with schemaMeta with extra columns and update meta filter lift - excluded column" in {
@@ -156,8 +172,8 @@ class InsertAdvancedSpec extends Spec with Inside {
         inline def a = quote { query[Person].filter(e => e.name == lift("JoeJoe")).update(_.name -> "Joe", _.age -> lift(123)) }
         inline given personSchema: UpdateMeta[Person] = updateMeta[Person](_.age)
         inline given sm: SchemaMeta[Person] = schemaMeta("tblPerson", _.name -> "colName", _.age -> "colAge")
-        ctx.run(q).triple mustEqual ("UPDATE tblPerson SET colName = 'Joe' WHERE colName = ?", List("JoeJoe"), Static)
-        ctx.run(a).triple mustEqual ("UPDATE tblPerson SET colName = 'Joe', colAge = ? WHERE colName = ?", List(123, "JoeJoe"), Static)
+        ctx.run(q).triple mustEqual ("UPDATE tblPerson AS e SET colName = 'Joe' WHERE e.colName = ?", List("JoeJoe"), Static)
+        ctx.run(a).triple mustEqual ("UPDATE tblPerson AS e SET colName = 'Joe', colAge = ? WHERE e.colName = ?", List(123, "JoeJoe"), Static)
       }
 
       "simple with schemaMeta with extra columns and update meta filter lift - filter by excluded column" in {
@@ -165,8 +181,8 @@ class InsertAdvancedSpec extends Spec with Inside {
         inline def a = quote { query[Person].filter(e => e.age == lift(123)).update(_.name -> "Joe", _.age -> lift(123)) }
         inline given personSchema: UpdateMeta[Person] = updateMeta[Person](_.age)
         inline given sm: SchemaMeta[Person] = schemaMeta("tblPerson", _.name -> "colName", _.age -> "colAge")
-        ctx.run(q).triple mustEqual ("UPDATE tblPerson SET colName = 'Joe' WHERE colAge = ?", List(123), Static)
-        ctx.run(a).triple mustEqual ("UPDATE tblPerson SET colName = 'Joe', colAge = ? WHERE colAge = ?", List(123, 123), Static)
+        ctx.run(q).triple mustEqual ("UPDATE tblPerson AS e SET colName = 'Joe' WHERE e.colAge = ?", List(123), Static)
+        ctx.run(a).triple mustEqual ("UPDATE tblPerson AS e SET colName = 'Joe', colAge = ? WHERE e.colAge = ?", List(123, 123), Static)
       }
     }
 
@@ -275,33 +291,4 @@ class InsertAdvancedSpec extends Spec with Inside {
       ctx.run(adyn).triple mustEqual ("UPDATE tblPerson SET colName = 'Joe', age = 123", List(), Dynamic)
     }
   }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    // "regular dynamic query shuold work" in {
-    //   ctx.run(qdyn).triple mustEqual ("INSERT INTO Person (name,age) VALUES ('Joe', 123)", List(), Dynamic)
-    //   ctx.run(adyn).triple mustEqual ("INSERT INTO Person (name,age) VALUES ('Joe', 123)", List(), Dynamic)
-    // }
-
-    // TODO add dynamic schema ignore possiblity
-
-
-  // TODO Need more testing of this for multiple use-cases
-//   "Entity with embedding" - {
-//     case class Address(street:String, zip:Int) extends Embedded
-//     case class Person(name: String, age: Int, address: Address)
-//     inline def people = quote { query[Person] }
-//     def peopleRuntime = quote { query[Person] }
-//   }
 }

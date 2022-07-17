@@ -4,7 +4,7 @@ import org.scalatest.BeforeAndAfterAll
 import org.scalatest.freespec.AnyFreeSpec
 import org.scalatest.matchers.must.Matchers
 
-import scala.concurrent.{ Await, Future }
+import scala.concurrent.{Await, Future}
 import scala.concurrent.duration.Duration
 import io.getquill.Quoted
 import io.getquill.EagerPlanter
@@ -13,13 +13,14 @@ import io.getquill.quat.Quat
 import io.getquill.NamingStrategy
 import io.getquill.idiom.Idiom
 import io.getquill.Query
+import io.getquill.context.mirror.Row
 
 abstract class Spec extends AnyFreeSpec with Matchers with BeforeAndAfterAll {
   val QV = Quat.Value
   val QEP = Quat.Product.empty
   def QP(fields: String*) = Quat.LeafProduct(fields: _*)
 
-  extension (m: MirrorContext[_, _]#BatchActionReturningMirror[_])
+  extension (m: MirrorContextBase[_, _]#BatchActionReturningMirror[_])
     def triple =
       if (m.groups.length != 1) fail(s"Expected all batch groups per design to only have one root element but has multiple ${m.groups}")
       val (queryString, returnAction, prepares) = m.groups(0)
@@ -29,13 +30,20 @@ abstract class Spec extends AnyFreeSpec with Matchers with BeforeAndAfterAll {
           // being explicit here about the fact that this is done per prepare element i.e. all of them are supposed to be Row instances
           prep match {
             case r: io.getquill.context.mirror.Row =>
-              r.data.toList.map(_._2)
+              r.data.map(data => deIndexify(data._2))
           }
         },
         m.info.executionType
       )
 
-  extension (m: MirrorContext[_, _]#BatchActionMirror)
+  private def deIndexify(value: Any): Any =
+    value match
+      case Some((Row.TupleIndex(a) -> b)) => Some(deIndexify(b))
+      case list: Seq[Any]                 => list.map(deIndexify(_))
+      case Row.TupleIndex(a) -> b         => b
+      case other                          => other
+
+  extension (m: MirrorContextBase[_, _]#BatchActionMirror)
     def triple =
       if (m.groups.length != 1) fail(s"Expected all batch groups per design to only have one root element but has multiple ${m.groups}")
       val (queryString, prepares) = m.groups(0)
@@ -45,46 +53,46 @@ abstract class Spec extends AnyFreeSpec with Matchers with BeforeAndAfterAll {
           // being explicit here about the fact that this is done per prepare element i.e. all of them are supposed to be Row instances
           prep match {
             case r: io.getquill.context.mirror.Row =>
-              r.data.toList.map(_._2)
+              r.data.map(data => deIndexify(data._2))
           }
         },
         m.info.executionType
       )
 
-  extension (m: MirrorContext[_, _]#ActionMirror)
+  extension (m: MirrorContextBase[_, _]#ActionMirror)
     def triple =
       (
         m.string,
         m.prepareRow match {
           case r: io.getquill.context.mirror.Row =>
-            r.data.toList.map(_._2)
+            r.data.map(data => deIndexify(data._2))
         },
         m.info.executionType
       )
 
-  extension (m: MirrorContext[_, _]#ActionReturningMirror[_])
+  extension (m: MirrorContextBase[_, _]#ActionReturningMirror[_, _])
     def triple =
       (
         m.string,
         m.prepareRow match {
           case r: io.getquill.context.mirror.Row =>
-            r.data.toList.map(_._2)
+            r.data.map(data => deIndexify(data._2))
         },
         m.info.executionType
       )
 
-  extension [T](m: MirrorContext[_, _]#QueryMirror[_])
+  extension [T](m: MirrorContextBase[_, _]#QueryMirror[_])
     def triple =
       (
         m.string,
         m.prepareRow match {
           case r: io.getquill.context.mirror.Row =>
-            r.data.toList.map(_._2)
+            r.data.map(data => deIndexify(data._2))
         },
         m.info.executionType
       )
 
-  extension [T, D <: Idiom, N <: NamingStrategy](ctx: MirrorContext[D, N])
+  extension [T, D <: Idiom, N <: NamingStrategy](ctx: MirrorContextBase[D, N])
     inline def pull(inline q: Query[T]) =
       val r = ctx.run(q)
       (
@@ -115,9 +123,10 @@ abstract class Spec extends AnyFreeSpec with Matchers with BeforeAndAfterAll {
     }
     object `(+)` {
       def apply(a: Ast, b: Ast) = BinaryOperation(a, StringOperator.+, b)
-      def unapply(ast: Ast) = ast match
-        case BinaryOperation(a, StringOperator.+, b) => Some(a, b)
-        case _ => None
+      def unapply(ast: Ast) =
+        ast match
+          case BinaryOperation(a, StringOperator.+, b) => Some(a, b)
+          case _                                       => None
     }
   }
 

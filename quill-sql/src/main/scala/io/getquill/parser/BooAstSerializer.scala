@@ -71,6 +71,7 @@ object AstPicklers {
       .addConcreteType[ConcatMap]
       .addConcreteType[SortBy]
       .addConcreteType[GroupBy]
+      .addConcreteType[GroupByMap]
       .addConcreteType[Aggregation]
       .addConcreteType[Take]
       .addConcreteType[Drop]
@@ -169,7 +170,6 @@ object AstPicklers {
         state.unpickle[Visibility]
       )
 
-
   // ==== OptionOperation Pickers ====
   implicit object optionNonePickler extends Pickler[OptionNone]:
     override def pickle(value: OptionNone)(implicit state: PickleState): Unit =
@@ -257,7 +257,7 @@ object AstPicklers {
       .addConcreteType[OptionApply](optionApplyPickler, classTag[OptionApply])
       .addConcreteType[OptionOrNull](optionOrNullPickler, classTag[OptionOrNull])
       .addConcreteType[OptionGetOrNull](optionGetOrNullPickler, classTag[OptionGetOrNull])
-
+      .addConcreteType[FilterIfDefined]
 
   // ==== IterableOperation Picker ====
   implicit val iterableOperationPickler: CompositePickler[IterableOperation] =
@@ -350,7 +350,7 @@ object AstPicklers {
         case v: scala.Boolean    => ConstantTypes.Boolean(v)
         case v: java.lang.String => ConstantTypes.String(v)
         case v: Unit             => ConstantTypes.Unit
-        case other => throw new IllegalArgumentException(s"Serialization Failure: The type `${other}` is not a valid ast.Constant.")
+        case other               => throw new IllegalArgumentException(s"Serialization Failure: The type `${other}` is not a valid ast.Constant.")
       }
   }
   implicit object constantPickler extends Pickler[Constant] {
@@ -394,14 +394,12 @@ object AstPicklers {
     override def unpickle(implicit state: UnpickleState): Tuple =
       new Tuple(state.unpickle[List[Ast]])
 
-
   implicit val valuePickler: CompositePickler[Value] =
     compositePickler[Value]
       .addConcreteType[Constant](constantPickler, classTag[Constant])
       .addConcreteType[NullValue.type]
       .addConcreteType[Tuple](tuplePickler, classTag[Tuple])
       .addConcreteType[CaseClass](caseClassPickler, classTag[CaseClass])
-
 
   // ==== Action Picker ====
   implicit object deletePickler extends Pickler[Delete]:
@@ -415,7 +413,6 @@ object AstPicklers {
     compositePickler[ReturningAction]
       .addConcreteType[Returning]
       .addConcreteType[ReturningGenerated]
-
 
   // ========= OnConflict Picker =========
   implicit object onConflictExcludedPickler extends Pickler[OnConflict.Excluded]:
@@ -442,7 +439,6 @@ object AstPicklers {
     compositePickler[OnConflict.Action]
       .addConcreteType[OnConflict.Ignore.type]
       .addConcreteType[OnConflict.Update]
-
 
   // ==== Action Picker ====
   implicit val actionPickler: CompositePickler[Action] =
@@ -489,12 +485,11 @@ object AstPicklers {
       .join[Tag]
 }
 
-
 object BooSerializer:
   import QuatPicklers._
   import AstPicklers._
-  import io.getquill.ast.{ Ast => QAst }
-  import io.getquill.quat.{ Quat => QQuat }
+  import io.getquill.ast.{Ast => QAst}
+  import io.getquill.quat.{Quat => QQuat}
 
   object Ast:
     def serialize(ast: QAst): String =

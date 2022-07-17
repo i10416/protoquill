@@ -6,21 +6,21 @@ import scala.collection.mutable.ArrayBuffer
 import io.getquill.util.Format
 import scala.util.Try
 
-/** Remove all instances of SerialHelper.fromSerializedJVM from a tree (for printing purposes) */
+/** Remove all instances of SerialHelper.fromSerialized from a tree (for printing purposes) */
 object DeserializeAstInstances:
   def apply[T: Type](input: Expr[T])(using Quotes): Expr[T] = {
-    import quotes.reflect.{ Try => _, _ }
+    import quotes.reflect.{Try => _, _}
     import io.getquill.parser.SerialHelper
     import io.getquill.parser.Lifter
     import io.getquill.metaprog.Extractors._
 
     def isQuat(expr: Expr[_]) =
-        expr.asTerm.tpe <:< TypeRepr.of[io.getquill.quat.Quat]
+      expr.asTerm.tpe <:< TypeRepr.of[io.getquill.quat.Quat]
 
     class CustomExprMap extends ExprMap {
       def transform[TF](expr: Expr[TF])(using Type[TF])(using Quotes): Expr[TF] =
         expr match
-          case '{ SerialHelper.fromSerialized[a](${Expr(serial)}) } =>
+          case '{ SerialHelper.fromSerialized[a](${ Expr(serial) }) } =>
             try {
               val actualAst = SerialHelper.fromSerialized[io.getquill.ast.Ast](serial)
               val astExpr = Lifter.NotSerializing.liftableAst(actualAst)
@@ -41,7 +41,7 @@ object DeserializeAstInstances:
           case v @ Varargs(args) =>
             Try {
               val mappedArgs = args.map(arg => transformChildren(arg))
-              '{ (${Expr.ofList(mappedArgs)}).asInstanceOf[TF] }
+              '{ (${ Expr.ofList(mappedArgs) }).asInstanceOf[TF] }
             }.getOrElse(v)
 
           case other =>
@@ -59,7 +59,7 @@ object DeserializeAstInstances:
 end DeserializeAstInstances
 
 object ExprAccumulate {
-  def apply[T: Type, ExpectedType](input: Expr[Any])(matcher: PartialFunction[Expr[Any], T])(using Quotes): List[T] = {
+  def apply[T: Type, ExpectedType](input: Expr[Any], recurseWhenMatched: Boolean = true)(matcher: PartialFunction[Expr[Any], T])(using Quotes): List[T] = {
     import quotes.reflect._
 
     val buff: ArrayBuffer[T] = new ArrayBuffer[T]()
@@ -87,7 +87,7 @@ object ExprAccumulate {
               super.transformChildren(expr)
 
         } catch {
-          case e if e.getMessage.startsWith("Expr cast exception:") => //hello
+          case e if e.getMessage.startsWith("Expr cast exception:") => // hello
             // println(
             //   s"============== Could not transform over expression:\n" +
             //   s"${io.getquill.util.Format.Expr(expr)}\n" +
@@ -101,17 +101,27 @@ object ExprAccumulate {
         expr.asTerm.tpe <:< TypeRepr.of[io.getquill.quat.Quat]
 
       def transform[TF](expr: Expr[TF])(using Type[TF])(using Quotes): Expr[TF] = {
-        if (!isQuat(expr))
-          matcher.lift(expr) match
-            case Some(result) =>
-              buff += result
-            case None =>
+        val found =
+          if (!isQuat(expr))
+            matcher.lift(expr) match
+              case Some(result) =>
+                buff += result
+                true
+              case None =>
+                false
+          else
+            false
+
+        // if we haven't found anything recurse
+        // if we have found something and are told to continue recursion then continue recursion
+        val continue = !found || recurseWhenMatched
 
         expr.asTerm match
           // Not including this causes execption "scala.tasty.reflect.ExprCastError: Expr: [ : Nothing]" in certain situations
           case Repeated(Nil, Inferred()) => expr
-          case _ if (isQuat(expr)) => expr
-          case _ => transformChildren[TF](expr)
+          case _ if (isQuat(expr))       => expr
+          case _ if continue             => transformChildren[TF](expr)
+          case _                         => expr
       }
     }
 
