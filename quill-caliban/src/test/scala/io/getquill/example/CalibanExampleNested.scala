@@ -1,29 +1,33 @@
 package io.getquill
 
-import caliban.GraphQL.graphQL
+import caliban.graphQL
 import caliban.schema.Annotations.GQLDescription
-import caliban.{RootResolver, ZHttpAdapter}
-import zhttp.http._
-import zhttp.service.Server
+import caliban.RootResolver
 import zio.{ExitCode, ZIO}
-import io.getquill._
-import io.getquill.context.qzio.ImplicitSyntax._
-import io.getquill.context.ZioJdbc._
+import io.getquill.*
+import io.getquill.context.qzio.ImplicitSyntax.*
+import io.getquill.context.ZioJdbc.*
 import io.getquill.util.LoadConfig
 import zio.Console.printLine
-import zio.{ ZIOApp, ExitCode, URIO, Task }
+import zio.{ExitCode, Task, URIO, ZIOApp}
+
 import java.io.Closeable
 import javax.sql.DataSource
-
 import scala.language.postfixOps
 import caliban.execution.Field
 import caliban.schema.ArgBuilder
-import io.getquill.CalibanIntegration._
+import io.getquill.CalibanIntegration.*
 import io.getquill.util.ContextLogger
-import io.getquill.NestedSchema._
+import io.getquill.NestedSchema.*
+import caliban.schema.Schema.auto.*
+import caliban.schema.ArgBuilder.auto.*
+import zio.json.JsonEncoder
+import zio.json.JsonDecoder
+import caliban._
+import caliban.quick._ 
 
 
-object DaoNested:
+object DaoNested {
   case class PersonAddressPlanQuery(plan: String, pa: List[PersonAddressNested])
   private val logger = ContextLogger(classOf[DaoNested.type])
 
@@ -43,12 +47,13 @@ object DaoNested:
   inline def plan(inline columns: List[String], inline filters: Map[String, String]) =
     quote { sql"EXPLAIN ${q(columns, filters)}".pure.as[Query[String]] }
 
-  def personAddress(columns: List[String], filters: Map[String, String]) =
+  def personAddress(columns: List[String], filters: Map[String, String]) = {
     println(s"Getting columns: $columns")
     run(q(columns, filters)).implicitDS.mapError(e => {
       logger.underlying.error("personAddress query failed", e)
       e
     })
+  }
 
   def personAddressPlan(columns: List[String], filters: Map[String, String]) =
     run(plan(columns, filters), OuterSelectWrap.Never).map(_.mkString("\n")).implicitDS.mapError(e => {
@@ -62,9 +67,9 @@ object DaoNested:
       _ <- run(liftQuery(ExampleData.people).foreach(row => query[PersonT].insertValue(row)))
       _ <- run(liftQuery(ExampleData.addresses).foreach(row => query[AddressT].insertValue(row)))
     } yield ()).implicitDS
-end DaoNested
+} // end DaoNested
 
-object CalibanExampleNested extends zio.ZIOAppDefault:
+object CalibanExampleNested extends zio.ZIOAppDefault {
   private val logger = ContextLogger(classOf[CalibanExampleNested.type])
 
   case class Queries(
@@ -90,21 +95,18 @@ object CalibanExampleNested extends zio.ZIOAppDefault:
             })
         )
       )
-    ).interpreter
+    )
 
   val myApp = for {
     _ <- DaoNested.resetDatabase()
-    interpreter <- endpoints
-    _ <- Server.start(
-        port = 8088,
-        http = Http.collectHttp[Request] { case _ -> !! / "api" / "graphql" =>
-          ZHttpAdapter.makeHttpService(interpreter)
-        }
+    _ <- endpoints.runServer(
+          port = 8088,
+          apiPath = "/api/graphql",
+          graphiqlPath = Some("/graphiql")
       )
-      .forever
   } yield ()
 
   override def run =
     myApp.exitCode
 
-end CalibanExampleNested
+} // end CalibanExampleNested

@@ -4,17 +4,20 @@ import zio.{ZIO, Task}
 import io.getquill.context.ZioJdbc._
 import caliban.execution.Field
 import caliban.schema.ArgBuilder
-import caliban.GraphQL.graphQL
+import caliban.graphQL
 import caliban.schema.Annotations.GQLDescription
 import caliban.RootResolver
 import io.getquill.CalibanIntegration._
+import caliban.schema._
+import caliban.schema.Schema.auto._
+import caliban.schema.ArgBuilder.auto._
 
 class CalibanIntegrationNestedSpec extends CalibanSpec {
   import Ctx._
 
-  object Nested:
+  object Nested {
     import NestedSchema._
-    object Dao:
+    object Dao {
       def personAddress(columns: List[String], filters: Map[String, String]) =
         Ctx.run {
           query[PersonT].leftJoin(query[AddressT]).on((p, a) => p.id == a.ownerId)
@@ -22,14 +25,19 @@ class CalibanIntegrationNestedSpec extends CalibanSpec {
             .filterByKeys(filters)
             .filterColumns(columns)
             .take(10)
-        }.provideLayer(zioDS).tap(list => {
-          println(s"Results: $list for columns: $columns and filters: ${io.getquill.util.Messages.qprint(filters)}")
-          ZIO.unit
+        }.provideLayer(zioDS).tapBoth({
+          e => {
+            println(s"ERROR $e")
+            ZIO.unit
+          }
+        }, {
+          list => {
+            println(s"Results: $list for columns: $columns and filters: ${io.getquill.util.Messages.qprint(filters)}")
+            ZIO.unit
+          }
         })
-        .tapError(e => {
-          println(s"ERROR $e")
-          ZIO.unit
-        })
+    }
+  }
 
   case class Queries(
     personAddressNested: Field => (ProductArgs[NestedSchema.PersonAddressNested] => Task[List[NestedSchema.PersonAddressNested]])
